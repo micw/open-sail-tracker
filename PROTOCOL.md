@@ -28,7 +28,7 @@ The proof-of-concept backend listens on UDP port `39001`. The Kubernetes test de
 | `POST` | `NON` | `/v1/position` | `42` (`application/octet-stream`) | none |
 | `POST` | `CON` | `/v1/status` | `42` (`application/octet-stream`) | piggybacked `2.04 Changed` |
 
-The tracker sends a position every five seconds and a status packet every 60 seconds. Position loss does not delay later positions. Position and status packets share one packet sequence space.
+The training firmware sends a position every second and a status packet every ten seconds. Position loss does not delay later positions. Position and status packets share one packet sequence space.
 
 The firmware currently does not retransmit an unacknowledged confirmable status packet. Full CoAP retransmission behavior is deferred until after the transport proof of concept.
 
@@ -52,7 +52,7 @@ Every binary payload starts with this 16-byte header:
 | Bit | Name | Meaning |
 |---:|---|---|
 | 0 | `POSITION_KNOWN` | coordinates contain a previously valid fix |
-| 1 | `FIX_CURRENT` | fix age does not exceed ten seconds |
+| 1 | `FIX_CURRENT` | fix age does not exceed three seconds |
 | 2 | `GNSS_ON` | GNSS is enabled |
 | 3 | `GNSS_ERROR` | GNSS or its data path reports an error |
 | 4–15 | reserved | sender sets these bits to zero |
@@ -63,7 +63,7 @@ Every binary payload starts with this 16-byte header:
 
 Packet type: `1`  
 Binary payload size: 26 bytes  
-Cadence: five seconds
+Cadence: one second
 
 | Offset | Size | Type | Field |
 |---:|---:|---|---|
@@ -76,7 +76,7 @@ Cadence: five seconds
 
 Packet type: `2`  
 Binary payload size: 58 bytes  
-Cadence: 60 seconds, with an additional packet immediately after boot
+Cadence: ten seconds, with an additional packet immediately after boot
 
 | Offset | Size | Type | Field | Unit or sentinel |
 |---:|---:|---|---|---|
@@ -103,7 +103,7 @@ Cadence: 60 seconds, with an additional packet immediately after boot
 
 Cellular state values are `0` off, `1` searching, `2` registered, `3` data service available, and `4` error.
 
-The current firmware populates position, uptime, battery voltage, minimum sampled battery voltage, cellular state, pending-record count, and reset reason. Battery voltage comes primarily from the averaged ESP32 GPIO8 ADC measurement; SIM7670G `AT+CBC` is used only as a fallback. Measurements that are not implemented yet use their defined sentinels.
+The current firmware populates position, uptime, battery voltage, minimum sampled battery voltage, speed, course, satellites used, HDOP, RSSI, cellular state, pending-record count, and reset reason. Battery voltage comes primarily from the averaged ESP32 GPIO8 ADC measurement; SIM7670G `AT+CBC` is used only as a fallback. RSRP, RSRQ, and SINR are not implemented yet and use their defined sentinels.
 
 ## Backend validation
 

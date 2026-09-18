@@ -8,9 +8,10 @@ Firmware proof of concept for the LILYGO T-SIM7670G-S3 Standard (H802).
 - starts the SIM7670G modem and waits for LTE registration;
 - configures APN `iotde.telefonica.com`;
 - enables the integrated GNSS receiver and active GNSS antenna supply;
-- reads position data through `AT+CGPSINFO`;
-- sends a 26-byte position packet every five seconds as `NON POST /v1/position`;
-- sends a 58-byte status packet at boot and every 60 seconds as `CON POST /v1/status`;
+- reads position, speed, course, satellites, and HDOP through `AT+CGNSSINFO`;
+- sends a 26-byte position packet every second as `NON POST /v1/position`;
+- sends a 58-byte status packet at boot and every ten seconds as `CON POST /v1/status`;
+- samples RSSI through `AT+CSQ` for every status packet;
 - resolves `sailtracker.wyraz.de` through the modem with `AT+CDNSGIP` and caches the IPv4 address;
 - uses CoAP over UDP to the resolved address on port `39001`;
 - represents an unknown position with `INT32_MIN` and validity flags;

@@ -16,9 +16,9 @@ constexpr char APN[] = "iotde.telefonica.com";
 constexpr char SERVER_HOSTNAME[] = "sailtracker.wyraz.de";
 constexpr uint16_t SERVER_PORT = 39001;
 constexpr uint16_t LOCAL_UDP_PORT = 39000;
-constexpr uint32_t POSITION_INTERVAL_MS = 5000;
-constexpr uint32_t STATUS_INTERVAL_MS = 60000;
-constexpr uint32_t FIX_FRESH_MS = 10000;
+constexpr uint32_t POSITION_INTERVAL_MS = 1000;
+constexpr uint32_t STATUS_INTERVAL_MS = 10000;
+constexpr uint32_t FIX_FRESH_MS = 3000;
 constexpr unsigned BATTERY_SAMPLE_COUNT = 32;
 constexpr size_t POSITION_PACKET_SIZE = 26;
 constexpr size_t STATUS_PACKET_SIZE = 58;
@@ -56,6 +56,11 @@ uint32_t nextStatusMs = 0;
 uint16_t coapMessageId = 0;
 uint16_t batteryMv = UNKNOWN_U16;
 uint16_t batteryMinMv = UNKNOWN_U16;
+uint16_t speedCms = UNKNOWN_U16;
+uint16_t courseCdeg = UNKNOWN_U16;
+uint16_t hdopX100 = UNKNOWN_U16;
+uint8_t satellites = UNKNOWN_U8;
+int8_t rssiDbm = UNKNOWN_I8;
 
 String readModem(uint32_t timeoutMs, bool stopAtPrompt = false)
 {
@@ -303,8 +308,8 @@ bool parseNmeaCoordinate(const String &value, const String &hemisphere, bool lat
 
 bool updatePosition()
 {
-    const String response = atCommand("AT+CGPSINFO", 2500);
-    constexpr char RESPONSE_PREFIX[] = "+CGPSINFO:";
+    const String response = atCommand("AT+CGNSSINFO", 2500);
+    constexpr char RESPONSE_PREFIX[] = "+CGNSSINFO:";
     const int marker = response.indexOf(RESPONSE_PREFIX);
     if (marker < 0) {
         gnssError = true;
@@ -316,10 +321,10 @@ bool updatePosition()
                                      end < 0 ? response.length() : end);
     body.trim();
 
-    String field[9];
+    String field[18];
     int fieldIndex = 0;
     int start = 0;
-    while (fieldIndex < 9) {
+    while (fieldIndex < 18) {
         const int comma = body.indexOf(',', start);
         if (comma < 0) {
             field[fieldIndex++] = body.substring(start);
@@ -331,9 +336,13 @@ bool updatePosition()
 
     int32_t newLatitude = 0;
     int32_t newLongitude = 0;
-    if (!parseNmeaCoordinate(field[0], field[1], true, newLatitude) ||
-        !parseNmeaCoordinate(field[2], field[3], false, newLongitude)) {
+    if (!parseNmeaCoordinate(field[5], field[6], true, newLatitude) ||
+        !parseNmeaCoordinate(field[7], field[8], false, newLongitude)) {
         gnssError = false;
+        speedCms = UNKNOWN_U16;
+        courseCdeg = UNKNOWN_U16;
+        hdopX100 = UNKNOWN_U16;
+        satellites = UNKNOWN_U8;
         return false;
     }
 
@@ -342,8 +351,32 @@ bool updatePosition()
     havePosition = true;
     lastFixMs = millis();
     gnssError = false;
-    Serial.printf("GNSS fix: %.7f, %.7f\n", latitudeE7 / 1e7, longitudeE7 / 1e7);
+    const double speedKnots = field[12].toDouble();
+    const double courseDegrees = field[13].toDouble();
+    const double hdop = field[15].toDouble();
+    speedCms = field[12].isEmpty() ? UNKNOWN_U16 : static_cast<uint16_t>(min(65534.0, round(speedKnots * 51.444444)));
+    courseCdeg = field[13].isEmpty() || courseDegrees < 0.0 || courseDegrees >= 360.0
+                     ? UNKNOWN_U16
+                     : static_cast<uint16_t>(round(courseDegrees * 100.0));
+    hdopX100 = field[15].isEmpty() ? UNKNOWN_U16 : static_cast<uint16_t>(min(65534.0, round(hdop * 100.0)));
+    satellites = field[17].isEmpty() ? UNKNOWN_U8 : static_cast<uint8_t>(min(254L, field[17].toInt()));
+    Serial.printf("GNSS fix: %.7f, %.7f speed=%u cm/s course=%u cdeg sats=%u hdop=%u\n",
+                  latitudeE7 / 1e7, longitudeE7 / 1e7, speedCms, courseCdeg, satellites, hdopX100);
     return true;
+}
+
+void updateSignalQuality()
+{
+    const String response = atCommand("AT+CSQ", 2000);
+    const int marker = response.indexOf("+CSQ:");
+    if (marker < 0) {
+        rssiDbm = UNKNOWN_I8;
+        return;
+    }
+    String value = response.substring(marker + 5, response.indexOf(',', marker));
+    value.trim();
+    const int csq = value.toInt();
+    rssiDbm = csq >= 0 && csq <= 31 ? static_cast<int8_t>(-113 + 2 * csq) : UNKNOWN_I8;
 }
 
 uint16_t readBatteryAdcMv()
@@ -454,12 +487,12 @@ void buildStatusPacket(uint8_t (&packet)[STATUS_PACKET_SIZE], uint32_t sequence)
     putU16(packet, 32, batteryMinMv);
     const uint32_t fixAgeMs = havePosition ? millis() - lastFixMs : UNKNOWN_U16;
     putU16(packet, 34, static_cast<uint16_t>(min(fixAgeMs, static_cast<uint32_t>(UNKNOWN_U16))));
-    putU16(packet, 36, UNKNOWN_U16);
-    putU16(packet, 38, UNKNOWN_U16);
-    packet[40] = UNKNOWN_U8;
-    putU16(packet, 41, UNKNOWN_U16);
+    putU16(packet, 36, speedCms);
+    putU16(packet, 38, courseCdeg);
+    packet[40] = satellites;
+    putU16(packet, 41, hdopX100);
     packet[43] = CELL_STATE_DATA;
-    packet[44] = static_cast<uint8_t>(UNKNOWN_I8);
+    packet[44] = static_cast<uint8_t>(rssiDbm);
     putU16(packet, 45, static_cast<uint16_t>(UNKNOWN_I16));
     putU16(packet, 47, static_cast<uint16_t>(UNKNOWN_I16));
     putU16(packet, 49, static_cast<uint16_t>(UNKNOWN_I16));
@@ -581,6 +614,9 @@ void loop()
 
     updatePosition();
     updateBatteryVoltage(statusDue);
+    if (statusDue) {
+        updateSignalQuality();
+    }
 
     if (positionDue) {
         nextPositionMs = now + POSITION_INTERVAL_MS;
