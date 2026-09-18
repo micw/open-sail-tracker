@@ -1,0 +1,50 @@
+replicaCount: 1
+coapPort: 39001
+
+image:
+  repository: ghcr.io/micw/open-sail-tracker-backend
+  pullPolicy: IfNotPresent
+  tag: master
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+hostPort:
+  enabled: true
+  port: 39001
+  hostIP: ""
+
+service:
+  enabled: false
+  type: ClusterIP
+  port: 39001
+  externalIPs: []
+  annotations: {}
+  externalTrafficPolicy: ""
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsUser: 10001
+  runAsGroup: 10001
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

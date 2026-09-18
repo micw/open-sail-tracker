@@ -1,0 +1,6 @@
+apiVersion: v2
+name: open-sail-tracker
+description: Open Sail Tracker CoAP backend deployment
+version: 0.1.0
+appVersion: "0.1.0"
+type: application

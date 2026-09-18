@@ -1,0 +1,29 @@
+[Unit]
+Description=Open Sail Tracker CoAP backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+WorkingDirectory=/opt/open-sail-tracker/backend
+Environment=PYTHONPATH=/opt/open-sail-tracker/backend/src
+ExecStart=/usr/bin/python3 -m open_sail_tracker_backend.server --host 0.0.0.0 --port 39001
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

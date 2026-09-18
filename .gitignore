@@ -1,0 +1,44 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+secrets.h
+secrets.ini
+credentials.*
+
+# PlatformIO / embedded builds
+.pio/
+.pioenvs/
+.piolibdeps/
+*.elf
+*.bin
+*.map
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# JavaScript
+node_modules/
+dist/
+coverage/
+
+# Rust, if it is used for tooling later
+/target/
+
+# Editors and operating systems
+.vscode/*.log
+.idea/
+.DS_Store
+Thumbs.db
+
+# CAD exports and temporary files
+*.bak
+*.tmp
+*.autosave
+~$*
+
+# Local measurements and device-specific exports
+measurements/local/
+provisioning/private/
