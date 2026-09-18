@@ -24,6 +24,19 @@ service:
   externalTrafficPolicy: Local
 ```
 
+## VictoriaMetrics
+
+Persistence is enabled by default and targets the VictoriaMetrics service in the same namespace:
+
+```yaml
+victoriaMetrics:
+  enabled: true
+  url: http://open-sail-tracker-vm:8428/api/v1/import/prometheus
+  queueSize: 10000
+```
+
+The URL is injected as `VICTORIA_METRICS_URL`. Set `victoriaMetrics.enabled=false` to run the logging-only backend. The chart does not install VictoriaMetrics itself; the `open-sail-tracker-vm` Service must already exist or the URL must be overridden.
+
 Branch image tags are generated from Git refs. Because `/` is not valid in a container tag, a branch such as `feature/xy` is published as `feature-xy`. Git tags such as `v1.0.0` are preserved.
 
 This proof-of-concept endpoint is unauthenticated and must be protected or replaced before production use.

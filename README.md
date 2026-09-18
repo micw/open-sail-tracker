@@ -10,10 +10,10 @@ Der erste CoAP-Durchstich ist funktionsfähig:
 
 - kleine Positionsmeldung alle fünf Sekunden
 - großes Statuspaket alle 60 Sekunden
-- CoAP über UDP an `vpsprod2.wyraz.de:39001`
+- CoAP über UDP an `sailtracker.wyraz.de:39001`
 - Python-Backend dekodiert und protokolliert beide Pakettypen
-- Backend läuft als regulärer systemd-Dienst auf dem Testserver
-- Docker-Image und Helm-Chart sind vorbereitet
+- Kubernetes-Deployment und Docker-Image sind funktionsfähig
+- dekodierte Telemetrie kann vollständig in VictoriaMetrics geschrieben werden
 - Firmware wurde auf dem H802 gebaut, geflasht und über LTE Ende-zu-Ende getestet
 
 Die aktuelle Teststufe ist absichtlich noch unverschlüsselt und nicht authentisiert. Sie darf nicht produktiv eingesetzt werden. Verschlüsselte und authentisierte Backend-Kommunikation ist der erste Punkt im [Backlog](backlog.md).

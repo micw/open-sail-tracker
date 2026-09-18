@@ -9,6 +9,7 @@ constexpr int MODEM_RX_PIN = 5;
 constexpr int MODEM_DTR_PIN = 7;
 constexpr int MODEM_PWRKEY_PIN = 46;
 constexpr int BOARD_POWER_SAVE_MODE_PIN = 42;
+constexpr int BATTERY_ADC_PIN = 8;
 
 constexpr uint32_t MODEM_BAUD = 115200;
 constexpr char APN[] = "iotde.telefonica.com";
@@ -18,6 +19,7 @@ constexpr uint16_t LOCAL_UDP_PORT = 39000;
 constexpr uint32_t POSITION_INTERVAL_MS = 5000;
 constexpr uint32_t STATUS_INTERVAL_MS = 60000;
 constexpr uint32_t FIX_FRESH_MS = 10000;
+constexpr unsigned BATTERY_SAMPLE_COUNT = 32;
 constexpr size_t POSITION_PACKET_SIZE = 26;
 constexpr size_t STATUS_PACKET_SIZE = 58;
 constexpr size_t MAX_COAP_DATAGRAM_SIZE = 96;
@@ -52,6 +54,8 @@ uint32_t lastFixMs = 0;
 uint32_t nextPositionMs = 0;
 uint32_t nextStatusMs = 0;
 uint16_t coapMessageId = 0;
+uint16_t batteryMv = UNKNOWN_U16;
+uint16_t batteryMinMv = UNKNOWN_U16;
 
 String readModem(uint32_t timeoutMs, bool stopAtPrompt = false)
 {
@@ -342,6 +346,50 @@ bool updatePosition()
     return true;
 }
 
+uint16_t readBatteryAdcMv()
+{
+    uint32_t sumMv = 0;
+    for (unsigned sample = 0; sample < BATTERY_SAMPLE_COUNT; ++sample) {
+        sumMv += analogReadMilliVolts(BATTERY_ADC_PIN);
+        delay(2);
+    }
+    const uint32_t voltageMv = (sumMv / BATTERY_SAMPLE_COUNT) * 2U;
+    return voltageMv >= 2500U && voltageMv <= 5000U
+               ? static_cast<uint16_t>(voltageMv)
+               : UNKNOWN_U16;
+}
+
+uint16_t readModemBatteryMv()
+{
+    const String response = atCommand("AT+CBC", 3000);
+    const int marker = response.indexOf("+CBC:");
+    const int unit = response.indexOf('V', marker);
+    if (marker < 0 || unit < 0) {
+        return UNKNOWN_U16;
+    }
+    String voltage = response.substring(marker + 5, unit);
+    voltage.trim();
+    const uint32_t voltageMv = static_cast<uint32_t>(lround(voltage.toFloat() * 1000.0F));
+    return voltageMv >= 2500U && voltageMv <= 5000U
+               ? static_cast<uint16_t>(voltageMv)
+               : UNKNOWN_U16;
+}
+
+void updateBatteryVoltage(bool queryModem)
+{
+    const uint16_t adcMv = readBatteryAdcMv();
+    const uint16_t modemMv = queryModem ? readModemBatteryMv() : UNKNOWN_U16;
+    batteryMv = adcMv != UNKNOWN_U16 ? adcMv : modemMv;
+    if (batteryMv != UNKNOWN_U16 &&
+        (batteryMinMv == UNKNOWN_U16 || batteryMv < batteryMinMv)) {
+        batteryMinMv = batteryMv;
+    }
+    Serial.printf("Battery ADC=%s modem=%s selected=%s mV\n",
+                  adcMv == UNKNOWN_U16 ? "unknown" : String(adcMv).c_str(),
+                  modemMv == UNKNOWN_U16 ? "unknown" : String(modemMv).c_str(),
+                  batteryMv == UNKNOWN_U16 ? "unknown" : String(batteryMv).c_str());
+}
+
 void putU16(uint8_t *buffer, size_t offset, uint16_t value)
 {
     buffer[offset] = static_cast<uint8_t>(value >> 8);
@@ -402,8 +450,8 @@ void buildStatusPacket(uint8_t (&packet)[STATUS_PACKET_SIZE], uint32_t sequence)
     putU32(packet, 18, static_cast<uint32_t>(havePosition ? latitudeE7 : UNKNOWN_COORDINATE));
     putU32(packet, 22, static_cast<uint32_t>(havePosition ? longitudeE7 : UNKNOWN_COORDINATE));
     putU32(packet, 26, millis() / 1000U);
-    putU16(packet, 30, UNKNOWN_U16);
-    putU16(packet, 32, UNKNOWN_U16);
+    putU16(packet, 30, batteryMv);
+    putU16(packet, 32, batteryMinMv);
     const uint32_t fixAgeMs = havePosition ? millis() - lastFixMs : UNKNOWN_U16;
     putU16(packet, 34, static_cast<uint16_t>(min(fixAgeMs, static_cast<uint32_t>(UNKNOWN_U16))));
     putU16(packet, 36, UNKNOWN_U16);
@@ -510,6 +558,8 @@ void setup()
     if (!waitForNetwork()) {
         Serial.println("WARNING: Not registered with LTE yet.");
     }
+    analogSetAttenuation(ADC_11db);
+    analogReadResolution(12);
     enableGnss();
     if (ensureUdpSocket()) {
         resolveServerAddress();
@@ -530,6 +580,7 @@ void loop()
     }
 
     updatePosition();
+    updateBatteryVoltage(statusDue);
 
     if (positionDue) {
         nextPositionMs = now + POSITION_INTERVAL_MS;
@@ -553,5 +604,8 @@ void loop()
         Serial.printf("Status seq=%lu %s\n",
                       static_cast<unsigned long>(packetSequence),
                       sent ? "sent" : "FAILED");
+        if (sent) {
+            batteryMinMv = batteryMv;
+        }
     }
 }

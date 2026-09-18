@@ -14,10 +14,13 @@ Firmware proof of concept for the LILYGO T-SIM7670G-S3 Standard (H802).
 - resolves `sailtracker.wyraz.de` through the modem with `AT+CDNSGIP` and caches the IPv4 address;
 - uses CoAP over UDP to the resolved address on port `39001`;
 - represents an unknown position with `INT32_MIN` and validity flags;
+- measures battery voltage through the GPIO8 voltage divider, with `AT+CBC` as a fallback;
+- tracks the lowest battery sample between status packets;
 - includes a device ID, random boot ID, and shared packet sequence number;
 - reopens the modem UDP socket and resolves the hostname again after a send failure.
 
 The wire format is defined in [PROTOCOL.md](../PROTOCOL.md).
+The power path and battery measurements are documented in [H802-POWER.md](../docs/hardware/H802-POWER.md).
 
 ## Build and flash
 
@@ -35,8 +38,8 @@ pio device monitor --port /dev/ttyACM0 --baud 115200
 - no local buffer or backfill;
 - confirmable status messages are not retransmitted yet;
 - the firmware does not parse the status ACK yet;
-- battery and detailed radio measurements use sentinel values;
+- detailed radio measurements still use sentinel values;
+- short LTE voltage dips are not guaranteed to be captured by the current periodic ADC sampling;
 - no watchdog or complete recovery state machine;
 - blocking AT commands;
 - server hostname and APN are compiled into the firmware;
-- the indoor test location has no GNSS fix.

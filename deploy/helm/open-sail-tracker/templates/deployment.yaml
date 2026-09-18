@@ -27,6 +27,13 @@ spec:
           args:
             - --port
             - {{ .Values.coapPort | quote }}
+          {{- if .Values.victoriaMetrics.enabled }}
+          env:
+            - name: VICTORIA_METRICS_URL
+              value: {{ .Values.victoriaMetrics.url | quote }}
+            - name: STORAGE_QUEUE_SIZE
+              value: {{ .Values.victoriaMetrics.queueSize | quote }}
+          {{- end }}
           ports:
             - name: coap
               containerPort: {{ .Values.coapPort }}

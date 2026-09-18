@@ -103,7 +103,7 @@ Cadence: 60 seconds, with an additional packet immediately after boot
 
 Cellular state values are `0` off, `1` searching, `2` registered, `3` data service available, and `4` error.
 
-The current firmware populates position, uptime, cellular state, pending-record count, and reset reason. Measurements that are not implemented yet use their defined sentinels.
+The current firmware populates position, uptime, battery voltage, minimum sampled battery voltage, cellular state, pending-record count, and reset reason. Battery voltage comes primarily from the averaged ESP32 GPIO8 ADC measurement; SIM7670G `AT+CBC` is used only as a fallback. Measurements that are not implemented yet use their defined sentinels.
 
 ## Backend validation
 
