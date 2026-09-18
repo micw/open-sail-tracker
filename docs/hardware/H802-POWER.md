@@ -87,9 +87,9 @@ Difference:        213 mV
 
 The tracker now:
 
-1. samples GPIO8 before every five-second transmission cycle;
+1. samples GPIO8 before every one-second transmission cycle;
 2. averages 32 calibrated millivolt readings and applies the divider factor;
-3. asks the modem for `AT+CBC` before each 60-second status packet;
+3. asks the modem for `AT+CBC` before each ten-second status packet;
 4. selects the ESP32 ADC value when valid, otherwise the modem value;
 5. tracks the lowest selected sample since the previous successful status packet;
 6. sends `battery_mv` and `battery_min_mv` in the status packet.
@@ -101,7 +101,7 @@ battery_mv:     3778 mV
 battery_min_mv: 3778 mV
 ```
 
-The current minimum tracking samples around five-second application cycles. It does not yet guarantee capture of the shortest LTE current peak because modem transmission and AT-command handling are blocking. Capturing peak sag requires an asynchronous ADC task, continuous ADC mode, or external measurement equipment.
+The current minimum tracking samples around one-second application cycles. It does not yet guarantee capture of the shortest LTE current peak because modem transmission and AT-command handling are blocking. Capturing peak sag requires an asynchronous ADC task, continuous ADC mode, or external measurement equipment.
 
 ## Remaining verification
 

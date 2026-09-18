@@ -8,8 +8,8 @@ Das Projekt ist unabhängig und derzeit kein offizielles Angebot eines Bootsbaue
 
 Der erste CoAP-Durchstich ist funktionsfähig:
 
-- kleine Positionsmeldung alle fünf Sekunden
-- großes Statuspaket alle 60 Sekunden
+- kleine Positionsmeldung jede Sekunde
+- großes Statuspaket alle zehn Sekunden
 - CoAP über UDP an `sailtracker.wyraz.de:39001`
 - Python-Backend dekodiert und protokolliert beide Pakettypen
 - Kubernetes-Deployment und Docker-Image sind funktionsfähig
