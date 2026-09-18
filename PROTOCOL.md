@@ -19,7 +19,7 @@ The next protocol version will encrypt payload fields and authenticate the visib
 
 ## UDP endpoint
 
-The proof-of-concept backend listens on UDP port `39001`. The test deployment is `vpsprod2.wyraz.de:39001`.
+The proof-of-concept backend listens on UDP port `39001`. The Kubernetes test deployment is `sailtracker.wyraz.de:39001`. The tracker resolves the hostname after establishing its packet-data service, caches the returned IPv4 address, and resolves it again after socket or send failures.
 
 ## CoAP resources
 

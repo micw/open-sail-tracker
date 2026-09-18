@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import struct
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 MAGIC = 0x4F53
 PROTOCOL_VERSION = 1
@@ -14,6 +14,31 @@ UNKNOWN_I16 = -(2**15)
 UNKNOWN_I32 = -(2**31)
 UNKNOWN_U16 = 2**16 - 1
 KNOWN_POSITION_FLAGS = 0x000F
+
+PACKET_TYPE_NAMES = {
+    PACKET_TYPE_POSITION: "position",
+    PACKET_TYPE_STATUS: "status",
+}
+CELL_STATE_NAMES = {
+    0: "off",
+    1: "searching",
+    2: "registered",
+    3: "data",
+    4: "error",
+}
+RESET_REASON_NAMES = {
+    0: "unknown",
+    1: "power_on",
+    2: "external",
+    3: "software",
+    4: "panic",
+    5: "interrupt_watchdog",
+    6: "task_watchdog",
+    7: "watchdog",
+    8: "deep_sleep",
+    9: "brownout",
+    10: "sdio",
+}
 
 HEADER = struct.Struct(">HBBIII")
 POSITION_BODY = struct.Struct(">Hii")
@@ -32,6 +57,35 @@ class Header:
     boot_id: int
     sequence: int
 
+    def as_log_dict(self) -> dict[str, object]:
+        return {
+            "protocol_version": self.version,
+            "packet_type": PACKET_TYPE_NAMES[self.packet_type],
+            "device_id": f"{self.device_id:08x}",
+            "boot_id": f"{self.boot_id:08x}",
+            "sequence": self.sequence,
+        }
+
+
+def _position_log_fields(flags: int, latitude_e7: int, longitude_e7: int) -> dict[str, object]:
+    position_known = bool(flags & 0x0001)
+    return {
+        "position_known": position_known,
+        "fix_current": bool(flags & 0x0002),
+        "gnss_on": bool(flags & 0x0004),
+        "gnss_error": bool(flags & 0x0008),
+        "latitude": latitude_e7 / 10_000_000 if position_known else None,
+        "longitude": longitude_e7 / 10_000_000 if position_known else None,
+    }
+
+
+def _optional_unsigned(value: int) -> int | None:
+    return None if value == UNKNOWN_U16 else value
+
+
+def _optional_signed(value: int, sentinel: int) -> int | None:
+    return None if value == sentinel else value
+
 
 @dataclass(frozen=True)
 class PositionPacket:
@@ -41,10 +95,10 @@ class PositionPacket:
     longitude_e7: int
 
     def as_log_dict(self) -> dict[str, object]:
-        value = asdict(self)
-        value["latitude"] = None if self.latitude_e7 == UNKNOWN_I32 else self.latitude_e7 / 10_000_000
-        value["longitude"] = None if self.longitude_e7 == UNKNOWN_I32 else self.longitude_e7 / 10_000_000
-        return value
+        return {
+            **self.header.as_log_dict(),
+            **_position_log_fields(self.flags, self.latitude_e7, self.longitude_e7),
+        }
 
 
 @dataclass(frozen=True)
@@ -71,10 +125,31 @@ class StatusPacket:
     reset_reason: int
 
     def as_log_dict(self) -> dict[str, object]:
-        value = asdict(self)
-        value["latitude"] = None if self.latitude_e7 == UNKNOWN_I32 else self.latitude_e7 / 10_000_000
-        value["longitude"] = None if self.longitude_e7 == UNKNOWN_I32 else self.longitude_e7 / 10_000_000
-        return value
+        speed_cms = _optional_unsigned(self.speed_cms)
+        course_cdeg = _optional_unsigned(self.course_cdeg)
+        hdop_x100 = _optional_unsigned(self.hdop_x100)
+        rsrq_x10 = _optional_signed(self.rsrq_x10, UNKNOWN_I16)
+        sinr_x10 = _optional_signed(self.sinr_x10, UNKNOWN_I16)
+        return {
+            **self.header.as_log_dict(),
+            **_position_log_fields(self.flags, self.latitude_e7, self.longitude_e7),
+            "uptime_s": self.uptime_s,
+            "battery_mv": _optional_unsigned(self.battery_mv),
+            "battery_min_mv": _optional_unsigned(self.battery_min_mv),
+            "fix_age_ms": _optional_unsigned(self.fix_age_ms),
+            "speed_mps": speed_cms / 100 if speed_cms is not None else None,
+            "course_deg": course_cdeg / 100 if course_cdeg is not None else None,
+            "satellites": None if self.satellites == 0xFF else self.satellites,
+            "hdop": hdop_x100 / 100 if hdop_x100 is not None else None,
+            "cell_state": CELL_STATE_NAMES.get(self.cell_state, "unknown"),
+            "rssi_dbm": _optional_signed(self.rssi_dbm, UNKNOWN_I8),
+            "rsrp_dbm": _optional_signed(self.rsrp_dbm, UNKNOWN_I16),
+            "rsrq_db": rsrq_x10 / 10 if rsrq_x10 is not None else None,
+            "sinr_db": sinr_x10 / 10 if sinr_x10 is not None else None,
+            "health": "ok" if self.health_flags == 0 else f"flags_0x{self.health_flags:08x}",
+            "pending_records": self.pending_records,
+            "reset_reason": RESET_REASON_NAMES.get(self.reset_reason, "unknown"),
+        }
 
 
 def _decode_header(payload: bytes, expected_type: int, expected_size: int) -> Header:

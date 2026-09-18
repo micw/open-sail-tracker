@@ -12,7 +12,7 @@ constexpr int BOARD_POWER_SAVE_MODE_PIN = 42;
 
 constexpr uint32_t MODEM_BAUD = 115200;
 constexpr char APN[] = "iotde.telefonica.com";
-constexpr char SERVER_IP[] = "188.68.49.93";
+constexpr char SERVER_HOSTNAME[] = "sailtracker.wyraz.de";
 constexpr uint16_t SERVER_PORT = 39001;
 constexpr uint16_t LOCAL_UDP_PORT = 39000;
 constexpr uint32_t POSITION_INTERVAL_MS = 5000;
@@ -38,6 +38,7 @@ constexpr int32_t UNKNOWN_COORDINATE = INT32_MIN;
 
 HardwareSerial SerialAT(1);
 
+String serverIp;
 uint32_t deviceId = 0;
 uint32_t bootId = 0;
 uint32_t sequenceNumber = 0;
@@ -193,6 +194,58 @@ bool openUdpSocket()
     const String response = atCommand(command, 5000);
     udpSocketReady = response.indexOf("+CIPOPEN: 0,0") >= 0;
     return udpSocketReady;
+}
+
+bool isValidIpv4Address(const String &address)
+{
+    int octets = 0;
+    int value = 0;
+    int digits = 0;
+    for (size_t index = 0; index <= address.length(); ++index) {
+        const char character = index < address.length() ? address[index] : '.';
+        if (character >= '0' && character <= '9') {
+            value = value * 10 + character - '0';
+            if (++digits > 3 || value > 255) {
+                return false;
+            }
+            continue;
+        }
+        if (character != '.' || digits == 0 || ++octets > 4) {
+            return false;
+        }
+        value = 0;
+        digits = 0;
+    }
+    return octets == 4;
+}
+
+bool resolveServerAddress()
+{
+    const String response = atCommand(String("AT+CDNSGIP=\"") + SERVER_HOSTNAME + "\"", 30000);
+    const int marker = response.indexOf("+CDNSGIP: 1,");
+    if (marker < 0) {
+        Serial.printf("Could not resolve %s.\n", SERVER_HOSTNAME);
+        return false;
+    }
+
+    const int hostnameStart = response.indexOf('"', marker);
+    const int hostnameEnd = response.indexOf('"', hostnameStart + 1);
+    const int addressStart = response.indexOf('"', hostnameEnd + 1);
+    const int addressEnd = response.indexOf('"', addressStart + 1);
+    if (hostnameStart < 0 || hostnameEnd < 0 || addressStart < 0 || addressEnd < 0) {
+        Serial.println("DNS response has an unexpected format.");
+        return false;
+    }
+
+    const String resolvedAddress = response.substring(addressStart + 1, addressEnd);
+    if (!isValidIpv4Address(resolvedAddress)) {
+        Serial.println("DNS response does not contain a valid IPv4 address.");
+        return false;
+    }
+
+    serverIp = resolvedAddress;
+    Serial.printf("Resolved %s to %s.\n", SERVER_HOSTNAME, serverIp.c_str());
+    return true;
 }
 
 bool ensureUdpSocket()
@@ -372,11 +425,14 @@ bool sendUdp(const uint8_t *payload, size_t length)
     if (!ensureUdpSocket()) {
         return false;
     }
+    if (serverIp.isEmpty() && !resolveServerAddress()) {
+        return false;
+    }
 
     while (SerialAT.available()) {
         SerialAT.read();
     }
-    const String command = String("AT+CIPSEND=0,") + length + ",\"" + SERVER_IP + "\"," + SERVER_PORT;
+    const String command = String("AT+CIPSEND=0,") + length + ",\"" + serverIp + "\"," + SERVER_PORT;
     SerialAT.print(command);
     SerialAT.print('\r');
     SerialAT.flush();
@@ -384,6 +440,7 @@ bool sendUdp(const uint8_t *payload, size_t length)
     Serial.printf("[AT] %s\n%s\n", command.c_str(), response.c_str());
     if (response.indexOf('>') < 0) {
         udpSocketReady = false;
+        serverIp = "";
         return false;
     }
 
@@ -394,6 +451,7 @@ bool sendUdp(const uint8_t *payload, size_t length)
     const String expected = String("+CIPSEND: 0,") + length + "," + length;
     if (response.indexOf(expected) < 0) {
         udpSocketReady = false;
+        serverIp = "";
         return false;
     }
     return true;
@@ -453,7 +511,9 @@ void setup()
         Serial.println("WARNING: Not registered with LTE yet.");
     }
     enableGnss();
-    ensureUdpSocket();
+    if (ensureUdpSocket()) {
+        resolveServerAddress();
+    }
     coapMessageId = static_cast<uint16_t>(esp_random());
     nextPositionMs = millis();
     nextStatusMs = millis();

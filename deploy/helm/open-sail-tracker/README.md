@@ -6,7 +6,7 @@ This chart deploys the stateless CoAP backend. By default, the pod binds UDP por
 helm upgrade --install open-sail-tracker deploy/helm/open-sail-tracker \
   --namespace open-sail-tracker \
   --create-namespace \
-  --set image.tag=master
+  --set image.tag=main
 ```
 
 The node must accept and route public UDP traffic on port `39001`. Only one pod using this host port can run on a node. Keep `replicaCount: 1` or use scheduling constraints that place replicas on different nodes.

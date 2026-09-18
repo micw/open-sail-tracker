@@ -11,7 +11,7 @@ The backend currently provides a minimal, unauthenticated CoAP-over-UDP ingest f
 
 Both resources use CoAP Content-Format `application/octet-stream` (`42`). A valid confirmable status request receives a piggybacked `2.04 Changed` response. The non-confirmable position resource does not generate a response.
 
-All accepted packets and rejected requests are written as one-line JSON records to standard output.
+All accepted packets and rejected requests are written as one-line JSON records to standard output. The accepted-packet log contains decoded values only: position flags become named booleans, fixed-point coordinates become decimal degrees, enum values become names, and sentinel values become JSON `null`. Raw wire-format fields such as numeric flags and `latitude_e7` are not included.
 
 ## Run locally
 

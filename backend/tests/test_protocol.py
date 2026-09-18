@@ -25,11 +25,20 @@ class PositionDecoderTests(unittest.TestCase):
         packet = decode_position(header(1) + struct.pack(">Hii", 0x0007, 53_550_0000, 10_000_0000))
         self.assertEqual(packet.header.sequence, 7)
         self.assertEqual(packet.latitude_e7, 53_550_0000)
-        self.assertEqual(packet.as_log_dict()["longitude"], 10.0)
+        logged = packet.as_log_dict()
+        self.assertEqual(logged["longitude"], 10.0)
+        self.assertTrue(logged["position_known"])
+        self.assertTrue(logged["fix_current"])
+        self.assertTrue(logged["gnss_on"])
+        self.assertNotIn("flags", logged)
+        self.assertNotIn("latitude_e7", logged)
 
     def test_accepts_unknown_position_sentinels(self) -> None:
         packet = decode_position(header(1) + struct.pack(">Hii", 0x0004, UNKNOWN_I32, UNKNOWN_I32))
-        self.assertIsNone(packet.as_log_dict()["latitude"])
+        logged = packet.as_log_dict()
+        self.assertIsNone(logged["latitude"])
+        self.assertFalse(logged["position_known"])
+        self.assertTrue(logged["gnss_on"])
 
     def test_rejects_current_without_known_position(self) -> None:
         with self.assertRaises(PacketError):
@@ -67,6 +76,14 @@ class StatusDecoderTests(unittest.TestCase):
         self.assertEqual(packet.header.sequence, 12)
         self.assertEqual(packet.uptime_s, 123)
         self.assertEqual(packet.cell_state, 3)
+        logged = packet.as_log_dict()
+        self.assertEqual(logged["packet_type"], "status")
+        self.assertEqual(logged["cell_state"], "data")
+        self.assertEqual(logged["health"], "ok")
+        self.assertIsNone(logged["battery_mv"])
+        self.assertIsNone(logged["speed_mps"])
+        self.assertNotIn("flags", logged)
+        self.assertNotIn("longitude_e7", logged)
 
 
 if __name__ == "__main__":

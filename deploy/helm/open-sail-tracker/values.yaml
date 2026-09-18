@@ -4,7 +4,7 @@ coapPort: 39001
 image:
   repository: ghcr.io/micw/open-sail-tracker-backend
   pullPolicy: IfNotPresent
-  tag: master
+  tag: main
 
 imagePullSecrets: []
 nameOverride: ""
