@@ -125,6 +125,7 @@ export function MapView({ fixture, elapsedMs, tailMs, showHistory }: MapViewProp
   const markerRef = useRef<Marker | null>(null);
   const hullRef = useRef<HTMLElement | null>(null);
   const [styleRevision, setStyleRevision] = useState(0);
+  const mapIdentity = `${fixture.event.slug}:${fixture.boat.id}`;
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -212,7 +213,7 @@ export function MapView({ fixture, elapsedMs, tailMs, showHistory }: MapViewProp
       mapRef.current = null;
       map.remove();
     };
-  }, [fixture]);
+  }, [mapIdentity]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -221,6 +222,12 @@ export function MapView({ fixture, elapsedMs, tailMs, showHistory }: MapViewProp
     }
 
     const track = splitTrack(fixture, elapsedMs, tailMs, showHistory);
+    const completeTrack = fixture.positionSegments.map(
+      (segment) => segment.map(
+        ([, longitude, latitude]): [number, number] => [longitude, latitude],
+      ),
+    );
+    setLines(map, 'track-complete', completeTrack);
     setLines(map, 'track-history', track.history);
     setLines(map, 'track-recent', track.recent);
 

@@ -58,7 +58,9 @@ function dummyApi(): Plugin {
           response.end(JSON.stringify(value));
         };
 
-        if (request.method !== 'GET' || !url.pathname.startsWith('/api/v1/events')) {
+        const isEventApi = url.pathname.startsWith('/api/v1/events');
+        const isLiveApi = url.pathname.startsWith('/api/v1/live');
+        if (request.method !== 'GET' || (!isEventApi && !isLiveApi)) {
           next();
           return;
         }
@@ -78,13 +80,32 @@ function dummyApi(): Plugin {
           });
           return;
         }
-        if (url.pathname !== `/api/v1/events/${slug}/tracks`) {
+        if (url.pathname === '/api/v1/live') {
+          sendJson(200, {
+            event: {
+              ...summary,
+              slug: 'live',
+              name: 'Live',
+              initialBounds: fixture.race.initialBounds,
+              publicationBounds: PUBLICATION_BOUNDS,
+              course: { type: 'FeatureCollection', features: [] },
+            },
+            entries: [entry],
+          });
+          return;
+        }
+        const liveTracks = url.pathname === '/api/v1/live/tracks';
+        if (!liveTracks && url.pathname !== `/api/v1/events/${slug}/tracks`) {
           sendJson(404, { error: 'not_found' });
           return;
         }
 
-        const requestedStart = Date.parse(url.searchParams.get('from') ?? '');
-        const requestedEnd = Date.parse(url.searchParams.get('to') ?? '');
+        const requestedStart = liveTracks
+          ? Date.parse(fixture.race.startTime)
+          : Date.parse(url.searchParams.get('from') ?? '');
+        const requestedEnd = liveTracks
+          ? Date.parse(fixture.race.endTime)
+          : Date.parse(url.searchParams.get('to') ?? '');
         if (!Number.isFinite(requestedStart) || !Number.isFinite(requestedEnd) || requestedStart > requestedEnd) {
           sendJson(400, { error: 'invalid_query' });
           return;
@@ -95,7 +116,7 @@ function dummyApi(): Plugin {
         const start = Math.max(requestedStart, eventStart);
         const end = Math.min(requestedEnd, eventEnd);
         if (start > end) {
-          sendJson(200, { eventSlug: slug, tracks: [] });
+          sendJson(200, { eventSlug: liveTracks ? 'live' : slug, tracks: [] });
           return;
         }
         const inRange = (sample: [number, ...number[]]) => {
@@ -120,7 +141,7 @@ function dummyApi(): Plugin {
         if (current.length > 0) segments.push({ positions: current });
 
         sendJson(200, {
-          eventSlug: slug,
+          eventSlug: liveTracks ? 'live' : slug,
           tracks: [{
             entryId: entry.id,
             segments,

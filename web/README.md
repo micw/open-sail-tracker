@@ -8,7 +8,7 @@ This directory contains the first map and replay proof of concept for Open Sail 
 - MapLibre GL JS map using the OpenStreetMap raster source from the MapLibre example;
 - event metadata and bounded track data loaded through relative `/api/v1` resources;
 - event selection through stable slugs in `/events/{slug}` URLs;
-- local-only `Live` view for development until an authenticated admin API exists;
+- public geofenced `Live` view, refreshed every five seconds;
 - local dummy API with the anonymized training fixture;
 - colored recent tail, optional gray history, and dashed gray future track;
 - timeline scrubbing and accelerated playback;

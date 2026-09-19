@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,6 +17,7 @@ from typing import Any, Protocol
 
 LOGGER = logging.getLogger("open_sail_tracker_backend.web_api")
 KNOTS_PER_MPS = 1.9438444924406
+LIVE_WINDOW_MS = 4 * 60 * 60 * 1000
 
 
 @dataclass(frozen=True)
@@ -327,10 +329,25 @@ class EventService:
         events: EventRepository,
         telemetry: TelemetryRepository,
         visibility: TrackVisibilityPolicy,
+        live_template: Event,
     ) -> None:
         self.events = events
         self.telemetry = telemetry
         self.visibility = visibility
+        self.live_template = live_template
+
+    def _live_event(self, now_ms: int) -> Event:
+        start_ms = now_ms - LIVE_WINDOW_MS
+        isoformat = lambda value: datetime.fromtimestamp(value / 1000, timezone.utc).isoformat()
+        return Event(
+            slug="live",
+            name="Live",
+            start_time=isoformat(start_ms),
+            end_time=isoformat(now_ms),
+            initial_bounds=self.live_template.initial_bounds,
+            publication_bounds=self.live_template.publication_bounds,
+            entries=self.live_template.entries,
+        )
 
     def list_events(self) -> dict[str, Any]:
         return {"events": [event.summary_dict() for event in self.events.list_public_events()]}
@@ -352,6 +369,17 @@ class EventService:
             "tracks": self.visibility.publish_tracks(event, raw_tracks),
         }
 
+    def live_details(self, now_ms: int | None = None) -> dict[str, Any]:
+        return self._live_event(now_ms or time.time_ns() // 1_000_000).public_dict()
+
+    def live_tracks(self, now_ms: int | None = None) -> dict[str, Any]:
+        event = self._live_event(now_ms or time.time_ns() // 1_000_000)
+        raw_tracks = self.telemetry.get_tracks(event, event.start_ms, event.end_ms)
+        return {
+            "eventSlug": event.slug,
+            "tracks": self.visibility.publish_tracks(event, raw_tracks),
+        }
+
 
 class ApiHandler(BaseHTTPRequestHandler):
     service: EventService
@@ -360,6 +388,16 @@ class ApiHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlsplit(self.path)
         if parsed.path == "/api/v1/events":
             self._json(200, self.service.list_events())
+            return
+        if parsed.path == "/api/v1/live":
+            self._json(200, self.service.live_details())
+            return
+        if parsed.path == "/api/v1/live/tracks":
+            try:
+                self._json(200, self.service.live_tracks())
+            except (OSError, RuntimeError, json.JSONDecodeError, urllib.error.URLError) as error:
+                LOGGER.exception("Live telemetry query failed")
+                self._json(502, {"error": "telemetry_unavailable", "message": str(error)})
             return
 
         parts = parsed.path.strip("/").split("/")
@@ -407,7 +445,12 @@ class ApiHandler(BaseHTTPRequestHandler):
 
 def serve(host: str, port: int, victoria_metrics_url: str) -> None:
     telemetry = VictoriaMetricsTelemetryRepository(victoria_metrics_url)
-    service = EventService(EVENT_REPOSITORY, telemetry, GuestTrackVisibilityPolicy())
+    service = EventService(
+        EVENT_REPOSITORY,
+        telemetry,
+        GuestTrackVisibilityPolicy(),
+        TEST_EVENT,
+    )
     handler = type("ConfiguredApiHandler", (ApiHandler,), {"service": service})
     server = ThreadingHTTPServer((host, port), handler)
     LOGGER.info(json.dumps({"event": "web_api_started", "host": host, "port": port}))

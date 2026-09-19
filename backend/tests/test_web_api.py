@@ -139,7 +139,12 @@ class FakeTelemetryRepository:
 
 class EventServiceTests(unittest.TestCase):
     def create_service(self, telemetry: FakeTelemetryRepository) -> EventService:
-        return EventService(EVENT_REPOSITORY, telemetry, GuestTrackVisibilityPolicy())
+        return EventService(
+            EVENT_REPOSITORY,
+            telemetry,
+            GuestTrackVisibilityPolicy(),
+            TEST_EVENT,
+        )
 
     def test_lists_events_and_returns_public_details(self) -> None:
         service = self.create_service(FakeTelemetryRepository())
@@ -171,6 +176,20 @@ class EventServiceTests(unittest.TestCase):
 
         self.assertEqual(result, {"eventSlug": TEST_EVENT.slug, "tracks": []})
         self.assertEqual(telemetry.calls, [])
+
+    def test_live_view_queries_recent_telemetry_with_public_bounds(self) -> None:
+        telemetry = FakeTelemetryRepository()
+        service = self.create_service(telemetry)
+        now_ms = 1_800_000_000_000
+
+        details = service.live_details(now_ms)
+        result = service.live_tracks(now_ms)
+
+        self.assertEqual(details["event"]["slug"], "live")
+        self.assertEqual(details["event"]["publicationBounds"], TEST_EVENT.publication_bounds)
+        self.assertEqual(result["eventSlug"], "live")
+        self.assertEqual(telemetry.calls[0][2], now_ms)
+        self.assertEqual(telemetry.calls[0][2] - telemetry.calls[0][1], 4 * 60 * 60 * 1000)
 
 
 if __name__ == "__main__":

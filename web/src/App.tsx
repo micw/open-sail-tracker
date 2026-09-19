@@ -14,6 +14,7 @@ import {
 const EVENTS_URL = '/api/v1/events';
 const PLAYBACK_TICK_MS = 100;
 const URL_UPDATE_INTERVAL_MS = 1_000;
+const LIVE_REFRESH_INTERVAL_MS = 5_000;
 
 const TAIL_OPTIONS = [
   { value: 30_000, label: '30 Sekunden' },
@@ -22,6 +23,21 @@ const TAIL_OPTIONS = [
   { value: 300_000, label: '5 Minuten' },
   { value: 900_000, label: '15 Minuten' },
 ];
+
+function toFixture(metadata: EventMetadata, trackResponse: TrackResponse): EventFixture {
+  const entry = metadata.entries[0];
+  if (!entry) {
+    throw new Error('Der Veranstaltung ist kein Boot zugeordnet');
+  }
+  const track = trackResponse.tracks.find((candidate) => candidate.entryId === entry.id);
+  return {
+    event: metadata.event,
+    boat: { ...entry.boat, color: entry.color },
+    positions: track?.segments.flatMap((segment) => segment.positions) ?? [],
+    positionSegments: track?.segments.map((segment) => segment.positions) ?? [],
+    motion: track?.motion ?? [],
+  };
+}
 
 export default function App() {
   const [fixture, setFixture] = useState<EventFixture>();
@@ -48,7 +64,7 @@ export default function App() {
       }
 
       const pathMatch = window.location.pathname.match(/^\/events\/([^/]+)\/?$/);
-      const isLive = import.meta.env.DEV && window.location.pathname === '/live';
+      const isLive = window.location.pathname === '/live';
       const slug = pathMatch ? decodeURIComponent(pathMatch[1]) : eventList.events[0].slug;
       if (!pathMatch && !isLive) {
         const url = new URL(window.location.href);
@@ -56,37 +72,25 @@ export default function App() {
         window.history.replaceState(null, '', url);
       }
 
-      const metadataResponse = await fetch(`/api/v1/events/${encodeURIComponent(slug)}`);
+      const metadataUrl = isLive ? '/api/v1/live' : `/api/v1/events/${encodeURIComponent(slug)}`;
+      const metadataResponse = await fetch(metadataUrl);
       if (!metadataResponse.ok) {
         throw new Error(`HTTP ${metadataResponse.status}`);
       }
       const metadata = await metadataResponse.json() as EventMetadata;
-      const parameters = new URLSearchParams({
-        from: metadata.event.startTime,
-        to: metadata.event.endTime,
-      });
-      const trackResponse = await fetch(
-        `/api/v1/events/${encodeURIComponent(metadata.event.slug)}/tracks?${parameters}`,
-      );
+      const parameters = new URLSearchParams({ from: metadata.event.startTime, to: metadata.event.endTime });
+      const trackUrl = isLive
+        ? '/api/v1/live/tracks'
+        : `/api/v1/events/${encodeURIComponent(metadata.event.slug)}/tracks?${parameters}`;
+      const trackResponse = await fetch(trackUrl);
       if (!trackResponse.ok) {
         throw new Error(`HTTP ${trackResponse.status}`);
       }
       const trackResponseData = await trackResponse.json() as TrackResponse;
-      const entry = metadata.entries[0];
-      if (!entry) {
-        throw new Error('Der Veranstaltung ist kein Boot zugeordnet');
-      }
-      const track = trackResponseData.tracks.find((candidate) => candidate.entryId === entry.id);
       return {
         events: eventList.events,
         liveMode: isLive,
-        fixture: {
-          event: metadata.event,
-          boat: { ...entry.boat, color: entry.color },
-          positions: track?.segments.flatMap((segment) => segment.positions) ?? [],
-          positionSegments: track?.segments.map((segment) => segment.positions) ?? [],
-          motion: track?.motion ?? [],
-        },
+        fixture: toFixture(metadata, trackResponseData),
       };
     }
 
@@ -115,6 +119,32 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!liveMode) {
+      return;
+    }
+    let cancelled = false;
+    const refresh = async () => {
+      const metadataResponse = await fetch('/api/v1/live');
+      const trackResponse = await fetch('/api/v1/live/tracks');
+      if (!metadataResponse.ok || !trackResponse.ok || cancelled) {
+        return;
+      }
+      const metadata = await metadataResponse.json() as EventMetadata;
+      const tracks = await trackResponse.json() as TrackResponse;
+      const nextFixture = toFixture(metadata, tracks);
+      if (!cancelled) {
+        setFixture(nextFixture);
+        setElapsedMs(Date.parse(nextFixture.event.endTime) - Date.parse(nextFixture.event.startTime));
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), LIVE_REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [liveMode]);
 
   const durationMs = fixture
     ? Date.parse(fixture.event.endTime) - Date.parse(fixture.event.startTime)
@@ -194,7 +224,7 @@ export default function App() {
           <p className="eyebrow">Open Sail Tracker · {liveMode ? 'Live' : 'Aufzeichnung'}</p>
           <h1>{liveMode ? 'Live' : fixture.event.name}</h1>
         </div>
-        {(events.length > 1 || import.meta.env.DEV) && (
+        {events.length > 0 && (
           <label>
             Veranstaltung
             <select
@@ -208,7 +238,7 @@ export default function App() {
                 window.location.assign(url);
               }}
             >
-              {import.meta.env.DEV && <option value="__live__">Live</option>}
+              <option value="__live__">Live</option>
               {events.map((event) => <option key={event.slug} value={event.slug}>{event.name}</option>)}
             </select>
           </label>

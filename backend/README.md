@@ -65,10 +65,14 @@ The initial API has three unauthenticated resources:
 | `GET` | `/api/v1/events` | Available public event summaries and slugs |
 | `GET` | `/api/v1/events/{slug}` | Event geometry, entries, boats, and public tracker numbers |
 | `GET` | `/api/v1/events/{slug}/tracks?from={timestamp}&to={timestamp}` | Position and motion samples for assigned entries |
+| `GET` | `/api/v1/live` | Public live-view metadata and geographic boundary |
+| `GET` | `/api/v1/live/tracks` | Geofenced tracks from the most recent four hours |
 
 `EventRepository` abstracts event metadata; its current implementation is a static list containing the test event. `TelemetryRepository` abstracts raw track data; the online implementation reads VictoriaMetrics. Internal telemetry device IDs remain in the event repository and are not exposed by the API.
 
 Both query timestamps must be ISO 8601 values with a time zone. The service intersects every query with the event interval and the tracker-assignment interval before calling the telemetry repository. The guest visibility policy then removes coordinates outside the event's publication bounds and splits the track so hidden excursions cannot be connected by a rendered line. A query wholly outside the event interval returns an empty track list. Positions for which the tracker reported `fix_current=false` are omitted rather than presenting stale coordinates as movement.
+
+The live resources are deliberately unauthenticated at this stage. They use the same public geographic boundary and never return coordinates outside it. A future authenticated admin live resource may use a different visibility policy.
 
 ## Run locally
 
