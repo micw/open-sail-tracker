@@ -283,18 +283,12 @@ bool enableGnss()
     return gnssOn;
 }
 
-bool parseNmeaCoordinate(const String &value, const String &hemisphere, bool latitude, int32_t &result)
+bool parseDecimalCoordinate(const String &value, const String &hemisphere, bool latitude, int32_t &result)
 {
     if (value.isEmpty() || hemisphere.isEmpty()) {
         return false;
     }
-    const double raw = value.toDouble();
-    if (raw <= 0.0) {
-        return false;
-    }
-    const int degrees = static_cast<int>(raw / 100.0);
-    const double minutes = raw - degrees * 100.0;
-    double decimal = degrees + minutes / 60.0;
+    double decimal = value.toDouble();
     if (hemisphere == "S" || hemisphere == "W") {
         decimal = -decimal;
     }
@@ -336,8 +330,8 @@ bool updatePosition()
 
     int32_t newLatitude = 0;
     int32_t newLongitude = 0;
-    if (!parseNmeaCoordinate(field[5], field[6], true, newLatitude) ||
-        !parseNmeaCoordinate(field[7], field[8], false, newLongitude)) {
+    if (!parseDecimalCoordinate(field[5], field[6], true, newLatitude) ||
+        !parseDecimalCoordinate(field[7], field[8], false, newLongitude)) {
         gnssError = false;
         speedCms = UNKNOWN_U16;
         courseCdeg = UNKNOWN_U16;
