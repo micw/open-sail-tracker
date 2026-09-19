@@ -4,6 +4,7 @@ metadata:
   name: {{ include "open-sail-tracker.fullname" . }}
   labels:
     {{- include "open-sail-tracker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
@@ -13,6 +14,7 @@ spec:
     metadata:
       labels:
         {{- include "open-sail-tracker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: backend
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

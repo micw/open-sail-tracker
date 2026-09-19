@@ -23,6 +23,7 @@ __pycache__/
 node_modules/
 dist/
 coverage/
+*.tsbuildinfo
 
 # Rust, if it is used for tooling later
 /target/

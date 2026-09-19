@@ -27,6 +27,7 @@ Die maßgebliche technische Definition steht in [PROTOCOL.md](PROTOCOL.md).
 - `protocol/` – ergänzende Protokoll- und Testdokumentation
 - `deploy/` – systemd-Unit und Helm-Chart
 - `docs/` – Architekturentscheidungen und Projektdokumentation
+- `web/` – React-/MapLibre-Webanwendung für Karte und Wiedergabe
 - `tools/` – Diagnose- und Entwicklungswerkzeuge
 - `.github/workflows/` – CI und Veröffentlichung des Backend-Images
 
@@ -38,6 +39,14 @@ Firmware, Backend, Webanwendung und mechanische Konstruktion bleiben in einem Mo
 PYTHONPATH=backend/src python -m unittest discover -s backend/tests -v
 docker build -t open-sail-tracker-backend:local backend
 docker run --rm -p 39001:39001/udp open-sail-tracker-backend:local
+```
+
+## Karten-Prototyp lokal starten
+
+```bash
+cd web
+npm install
+npm run dev
 ```
 
 ## Firmware bauen und flashen

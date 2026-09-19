@@ -20,6 +20,7 @@ spec:
   {{- end }}
   selector:
     {{- include "open-sail-tracker.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
   ports:
     - name: coap
       port: {{ .Values.service.port }}
