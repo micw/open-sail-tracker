@@ -13,5 +13,6 @@ RUN python -m pip install --no-cache-dir /wheels/*.whl && rm -rf /wheels
 
 USER 10001:10001
 EXPOSE 39001/udp
+EXPOSE 8080/tcp
 ENTRYPOINT ["open-sail-tracker-backend"]
 CMD ["--port", "39001"]

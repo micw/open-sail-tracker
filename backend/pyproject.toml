@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-sail-tracker-backend"
-version = "0.2.0"
-description = "CoAP telemetry ingest for Open Sail Tracker"
+version = "0.3.0"
+description = "CoAP telemetry ingest and HTTP race API for Open Sail Tracker"
 requires-python = ">=3.9"
 dependencies = []
 
 [project.scripts]
 open-sail-tracker-backend = "open_sail_tracker_backend.server:main"
+open-sail-tracker-api = "open_sail_tracker_backend.web_api:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

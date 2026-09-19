@@ -5,7 +5,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY index.html tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts ./
 COPY src ./src
-COPY public ./public
+COPY dev-data ./dev-data
 RUN npm run build
 
 FROM nginx:1.29-alpine

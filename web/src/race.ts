@@ -2,20 +2,53 @@ export type Bounds = [[number, number], [number, number]];
 export type PositionSample = [elapsedMs: number, longitude: number, latitude: number];
 export type MotionSample = [elapsedMs: number, speedKnots: number, courseDegrees: number];
 
-export interface RaceFixture {
-  race: {
-    id: string;
-    name: string;
-    startTime: string;
-    endTime: string;
+export interface RaceSummary {
+  slug: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+}
+
+export interface RaceList {
+  races: RaceSummary[];
+}
+
+export interface RaceMetadata {
+  race: RaceSummary & {
     initialBounds: Bounds;
+    course: {
+      type: 'FeatureCollection';
+      features: unknown[];
+    };
   };
+  entries: RaceEntry[];
+}
+
+export interface RaceEntry {
+  id: string;
+  trackerNumber: string;
+  color: string;
   boat: {
     id: string;
     sailNumber: string;
     name: string;
-    color: string;
   };
+}
+
+export interface RaceTrack {
+  entryId: string;
+  positions: PositionSample[];
+  motion: MotionSample[];
+}
+
+export interface TrackResponse {
+  raceSlug: string;
+  tracks: RaceTrack[];
+}
+
+export interface RaceFixture {
+  race: RaceMetadata['race'];
+  boat: RaceEntry['boat'] & { color: string };
   positions: PositionSample[];
   motion: MotionSample[];
 }

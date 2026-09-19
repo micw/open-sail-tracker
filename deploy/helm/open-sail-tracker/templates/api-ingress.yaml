@@ -1,0 +1,24 @@
+{{- if and .Values.api.enabled .Values.api.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "open-sail-tracker.fullname" . }}-api
+  labels:
+    {{- include "open-sail-tracker.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  {{- with .Values.api.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.api.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.api.ingress.path }}
+            pathType: {{ .Values.api.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "open-sail-tracker.fullname" . }}-api
+                port:
+                  number: {{ .Values.api.service.port }}
+{{- end }}

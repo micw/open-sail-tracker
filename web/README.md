@@ -6,8 +6,9 @@ This directory contains the first map and replay proof of concept for Open Sail 
 
 - React and TypeScript application built with Vite;
 - MapLibre GL JS map using the OpenStreetMap raster source from the MapLibre example;
-- static race window from 10:50 to 12:45 local time on 19 September 2026;
-- anonymized position and motion fixture from the training run;
+- race metadata and bounded track data loaded through relative `/api/v1` resources;
+- race selection through stable slugs in `/races/{slug}` URLs;
+- local dummy API with the anonymized training fixture;
 - colored recent tail, optional gray history, and dashed gray future track;
 - timeline scrubbing and accelerated playback;
 - boat marker rotation only while the speed over ground is at least 0.58 knots.
@@ -21,7 +22,7 @@ npm install
 npm run dev
 ```
 
-Open the URL printed by Vite.
+Open the URL printed by Vite. The Vite development server provides the dummy API under the same relative paths used by the deployed application. Its fixture lives in `dev-data/` and is not copied into the production web bundle.
 
 ## Production build
 
@@ -30,7 +31,7 @@ npm run build
 npm run preview
 ```
 
-The fixture contains no device identifier, SIM data, credentials, or provisioning information.
+The development fixture contains no device identifier, SIM data, credentials, or provisioning information. `npm run preview` only previews static assets and therefore requires a separate API or reverse proxy.
 
 ## Container
 

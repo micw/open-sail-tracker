@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { MapView } from './MapView';
-import { formatRaceTime, motionAt, type RaceFixture } from './race';
+import {
+  formatRaceTime,
+  motionAt,
+  type RaceFixture,
+  type RaceList,
+  type RaceMetadata,
+  type RaceSummary,
+  type TrackResponse,
+} from './race';
 
-const FIXTURE_URL = '/data/training-2026-09-19.json';
+const RACES_URL = '/api/v1/races';
 const PLAYBACK_TICK_MS = 100;
 const URL_UPDATE_INTERVAL_MS = 1_000;
 
@@ -17,6 +25,7 @@ const TAIL_OPTIONS = [
 
 export default function App() {
   const [fixture, setFixture] = useState<RaceFixture>();
+  const [races, setRaces] = useState<RaceSummary[]>([]);
   const [error, setError] = useState<string>();
   const [elapsedMs, setElapsedMs] = useState(0);
   const [tailMs, setTailMs] = useState(120_000);
@@ -27,24 +36,69 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(FIXTURE_URL)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        return response.json() as Promise<RaceFixture>;
-      })
-      .then((data) => {
+    async function loadRace() {
+      const listResponse = await fetch(RACES_URL);
+      if (!listResponse.ok) {
+        throw new Error(`HTTP ${listResponse.status}`);
+      }
+      const raceList = await listResponse.json() as RaceList;
+      if (raceList.races.length === 0) {
+        throw new Error('Keine Regatta verfügbar');
+      }
+
+      const pathMatch = window.location.pathname.match(/^\/races\/([^/]+)\/?$/);
+      const slug = pathMatch ? decodeURIComponent(pathMatch[1]) : raceList.races[0].slug;
+      if (!pathMatch) {
+        const url = new URL(window.location.href);
+        url.pathname = `/races/${encodeURIComponent(slug)}`;
+        window.history.replaceState(null, '', url);
+      }
+
+      const metadataResponse = await fetch(`/api/v1/races/${encodeURIComponent(slug)}`);
+      if (!metadataResponse.ok) {
+        throw new Error(`HTTP ${metadataResponse.status}`);
+      }
+      const metadata = await metadataResponse.json() as RaceMetadata;
+      const parameters = new URLSearchParams({
+        from: metadata.race.startTime,
+        to: metadata.race.endTime,
+      });
+      const trackResponse = await fetch(
+        `/api/v1/races/${encodeURIComponent(metadata.race.slug)}/tracks?${parameters}`,
+      );
+      if (!trackResponse.ok) {
+        throw new Error(`HTTP ${trackResponse.status}`);
+      }
+      const trackResponseData = await trackResponse.json() as TrackResponse;
+      const entry = metadata.entries[0];
+      if (!entry) {
+        throw new Error('Der Regatta ist kein Boot zugeordnet');
+      }
+      const track = trackResponseData.tracks.find((candidate) => candidate.entryId === entry.id);
+      return {
+        races: raceList.races,
+        fixture: {
+          race: metadata.race,
+          boat: { ...entry.boat, color: entry.color },
+          positions: track?.positions ?? [],
+          motion: track?.motion ?? [],
+        },
+      };
+    }
+
+    loadRace()
+      .then((data: { races: RaceSummary[]; fixture: RaceFixture }) => {
         if (cancelled) {
           return;
         }
-        const startEpochMs = Date.parse(data.race.startTime);
-        const durationMs = Date.parse(data.race.endTime) - startEpochMs;
+        const startEpochMs = Date.parse(data.fixture.race.startTime);
+        const durationMs = Date.parse(data.fixture.race.endTime) - startEpochMs;
         const requestedTime = Date.parse(new URLSearchParams(window.location.search).get('at') ?? '');
         const initialElapsedMs = Number.isFinite(requestedTime)
           ? Math.max(0, Math.min(durationMs, requestedTime - startEpochMs))
-          : (data.positions[0]?.[0] ?? 0);
-        setFixture(data);
+          : (data.fixture.positions[0]?.[0] ?? 0);
+        setRaces(data.races);
+        setFixture(data.fixture);
         setElapsedMs(initialElapsedMs);
       })
       .catch((reason: unknown) => {
@@ -104,7 +158,7 @@ export default function App() {
     return (
       <main className="center-message">
         <h1>Open Sail Tracker</h1>
-        <p>Die Trainingsdaten konnten nicht geladen werden.</p>
+        <p>Die Regattadaten konnten nicht geladen werden.</p>
         <code>{error}</code>
       </main>
     );
@@ -135,6 +189,22 @@ export default function App() {
           <p className="eyebrow">Open Sail Tracker · Aufzeichnung</p>
           <h1>{fixture.race.name}</h1>
         </div>
+        {races.length > 1 && (
+          <label>
+            Regatta
+            <select
+              value={fixture.race.slug}
+              onChange={(event) => {
+                const url = new URL(window.location.href);
+                url.pathname = `/races/${encodeURIComponent(event.target.value)}`;
+                url.searchParams.delete('at');
+                window.location.assign(url);
+              }}
+            >
+              {races.map((race) => <option key={race.slug} value={race.slug}>{race.name}</option>)}
+            </select>
+          </label>
+        )}
         <div className={`mode-badge ${atEnd ? 'mode-badge--live' : ''}`}>
           {atEnd ? 'Am Ende' : 'Wiedergabe'}
         </div>

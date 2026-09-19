@@ -1,6 +1,6 @@
 # Open Sail Tracker Helm chart
 
-This chart deploys the stateless CoAP backend and the static web application. By default, the backend pod binds UDP port `39001` directly on its Kubernetes node through `hostPort`. The backend Service resource is optional and disabled by default.
+This chart deploys the stateless CoAP ingest, the separate HTTP race API, and the static web application. By default, the ingest pod binds UDP port `39001` directly on its Kubernetes node through `hostPort`. The ingest Service resource is optional and disabled by default.
 
 ```bash
 helm upgrade --install open-sail-tracker deploy/helm/open-sail-tracker \
@@ -33,10 +33,26 @@ Persistence is enabled by default and targets the VictoriaMetrics service in the
 victoriaMetrics:
   enabled: true
   url: http://open-sail-tracker-vm:8428/api/v1/import/prometheus
+  queryUrl: http://open-sail-tracker-vm:8428/api/v1/export
   queueSize: 10000
 ```
 
-The URL is injected as `VICTORIA_METRICS_URL`. Set `victoriaMetrics.enabled=false` to run the logging-only backend. The chart does not install VictoriaMetrics itself; the `open-sail-tracker-vm` Service must already exist or the URL must be overridden.
+The import URL is injected into the ingest as `VICTORIA_METRICS_URL`; the query URL is injected into the HTTP API as `VICTORIA_METRICS_QUERY_URL`. Set `victoriaMetrics.enabled=false` to run the logging-only ingest. The chart does not install VictoriaMetrics itself; the `open-sail-tracker-vm` Service must already exist or the URLs must be overridden.
+
+For a VictoriaMetrics instance reached through a different Kubernetes Service, override both endpoints explicitly:
+
+```bash
+helm upgrade --install open-sail-tracker deploy/helm/open-sail-tracker \
+  --namespace open-sail-tracker \
+  --set-string victoriaMetrics.url=http://victoria-metrics.monitoring.svc:8428/api/v1/import/prometheus \
+  --set-string victoriaMetrics.queryUrl=http://victoria-metrics.monitoring.svc:8428/api/v1/export
+```
+
+The API needs the native VictoriaMetrics export endpoint, not the Prometheus query-range endpoint. These URLs contain no credentials; use a Kubernetes Secret and an authenticated proxy before adding authentication rather than placing credentials in `values.yaml`.
+
+## HTTP API
+
+The API runs from the backend image as a logically separate deployment and is published at `/api` by default. A static `RaceRepository` provides the test race by slug, while the `TelemetryRepository` implementation reads VictoriaMetrics. Track queries are strictly bounded by the selected race interval. The API is currently unauthenticated.
 
 ## Web application
 
