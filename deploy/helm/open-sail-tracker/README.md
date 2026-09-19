@@ -1,14 +1,14 @@
 # Open Sail Tracker Helm chart
 
-This chart deploys the stateless CoAP ingest, the separate HTTP race API, and the static web application. By default, the ingest pod binds UDP port `39001` directly on its Kubernetes node through `hostPort`. The ingest Service resource is optional and disabled by default.
+This chart deploys the stateless CoAP ingest, the separate HTTP event API, and the static web application. By default, the ingest pod binds UDP port `39001` directly on its Kubernetes node through `hostPort`. The ingest Service resource is optional and disabled by default.
 
 ```bash
 helm upgrade --install open-sail-tracker deploy/helm/open-sail-tracker \
   --namespace open-sail-tracker \
-  --create-namespace \
-  --set image.tag=master \
-  --set web.image.tag=master
+  --create-namespace
 ```
+
+Empty image tags in `values.yaml` default to the chart's `appVersion`, so a released chart deploys matching immutable backend and web image tags.
 
 The node must accept and route public UDP traffic on port `39001`. Only one pod using this host port can run on a node. Keep `replicaCount: 1` or use scheduling constraints that place replicas on different nodes.
 
