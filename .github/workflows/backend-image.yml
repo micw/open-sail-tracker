@@ -59,7 +59,7 @@ jobs:
             type=sha,prefix=sha-
           labels: |
             org.opencontainers.image.title=Open Sail Tracker backend
-            org.opencontainers.image.description=CoAP telemetry ingest and HTTP race API for Open Sail Tracker
+            org.opencontainers.image.description=CoAP telemetry ingest and HTTP event API for Open Sail Tracker
 
       - name: Build and publish backend image
         uses: docker/build-push-action@v6

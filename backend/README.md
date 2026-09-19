@@ -49,7 +49,7 @@ open_sail_tracker_cell_state_info{device_id="4c939764",cell_state="data",...} 1 
 
 The queue is not a durable local write-ahead log. A backend restart while VictoriaMetrics is unavailable can lose queued data. Durable offline buffering belongs in a later backend and tracker milestone.
 
-## HTTP race API
+## HTTP event API
 
 Run the HTTP component separately from the CoAP ingest:
 
@@ -62,13 +62,13 @@ The initial API has three unauthenticated resources:
 
 | Method | Resource | Description |
 |---|---|---|
-| `GET` | `/api/v1/races` | Available race summaries and slugs |
-| `GET` | `/api/v1/races/{slug}` | Race geometry, entries, boats, and public tracker numbers |
-| `GET` | `/api/v1/races/{slug}/tracks?from={timestamp}&to={timestamp}` | Position and motion samples for assigned entries |
+| `GET` | `/api/v1/events` | Available public event summaries and slugs |
+| `GET` | `/api/v1/events/{slug}` | Event geometry, entries, boats, and public tracker numbers |
+| `GET` | `/api/v1/events/{slug}/tracks?from={timestamp}&to={timestamp}` | Position and motion samples for assigned entries |
 
-`RaceRepository` abstracts race metadata; its current implementation is a static list containing the test race. `TelemetryRepository` abstracts track data; the online implementation reads VictoriaMetrics. Internal telemetry device IDs remain in the race repository and are not exposed by the API.
+`EventRepository` abstracts event metadata; its current implementation is a static list containing the test event. `TelemetryRepository` abstracts raw track data; the online implementation reads VictoriaMetrics. Internal telemetry device IDs remain in the event repository and are not exposed by the API.
 
-Both query timestamps must be ISO 8601 values with a time zone. The service clamps every telemetry query to the start and end in the race metadata before calling the telemetry repository; a query wholly outside that interval returns an empty track list. Positions for which the tracker reported `fix_current=false` are omitted rather than presenting stale coordinates as movement.
+Both query timestamps must be ISO 8601 values with a time zone. The service intersects every query with the event interval and the tracker-assignment interval before calling the telemetry repository. The guest visibility policy then removes coordinates outside the event's publication bounds and splits the track so hidden excursions cannot be connected by a rendered line. A query wholly outside the event interval returns an empty track list. Positions for which the tracker reported `fix_current=false` are omitted rather than presenting stale coordinates as movement.
 
 ## Run locally
 

@@ -52,7 +52,7 @@ The API needs the native VictoriaMetrics export endpoint, not the Prometheus que
 
 ## HTTP API
 
-The API runs from the backend image as a logically separate deployment and is published at `/api` by default. A static `RaceRepository` provides the test race by slug, while the `TelemetryRepository` implementation reads VictoriaMetrics. Track queries are strictly bounded by the selected race interval. The API is currently unauthenticated.
+The API runs from the backend image as a logically separate deployment and is published at `/api` by default. A static `EventRepository` provides the test event by slug, while the `TelemetryRepository` implementation reads VictoriaMetrics. Public track queries are bounded by the event and assignment intervals and by the event's publication bounding box. The API is currently unauthenticated and therefore does not publish an all-tracker live endpoint.
 
 ## Web application
 

@@ -18,6 +18,11 @@ interface Fixture {
   motion: [number, number, number][];
 }
 
+const PUBLICATION_BOUNDS: [[number, number], [number, number]] = [
+  [12.236718465054931, 51.296003387362596],
+  [12.258043783104087, 51.31842232597056],
+];
+
 function dummyApi(): Plugin {
   const directory = path.dirname(fileURLToPath(import.meta.url));
   const fixture = JSON.parse(
@@ -32,7 +37,7 @@ function dummyApi(): Plugin {
   };
   const entry = {
     id: 'test-entry',
-    trackerNumber: '01',
+    trackerNumbers: ['01'],
     color: fixture.boat.color,
     boat: {
       id: fixture.boat.id,
@@ -53,26 +58,27 @@ function dummyApi(): Plugin {
           response.end(JSON.stringify(value));
         };
 
-        if (request.method !== 'GET' || !url.pathname.startsWith('/api/v1/races')) {
+        if (request.method !== 'GET' || !url.pathname.startsWith('/api/v1/events')) {
           next();
           return;
         }
-        if (url.pathname === '/api/v1/races') {
-          sendJson(200, { races: [summary] });
+        if (url.pathname === '/api/v1/events') {
+          sendJson(200, { events: [summary] });
           return;
         }
-        if (url.pathname === `/api/v1/races/${slug}`) {
+        if (url.pathname === `/api/v1/events/${slug}`) {
           sendJson(200, {
-            race: {
+            event: {
               ...summary,
               initialBounds: fixture.race.initialBounds,
+              publicationBounds: PUBLICATION_BOUNDS,
               course: { type: 'FeatureCollection', features: [] },
             },
             entries: [entry],
           });
           return;
         }
-        if (url.pathname !== `/api/v1/races/${slug}/tracks`) {
+        if (url.pathname !== `/api/v1/events/${slug}/tracks`) {
           sendJson(404, { error: 'not_found' });
           return;
         }
@@ -84,23 +90,40 @@ function dummyApi(): Plugin {
           return;
         }
 
-        const raceStart = Date.parse(fixture.race.startTime);
-        const raceEnd = Date.parse(fixture.race.endTime);
-        const start = Math.max(requestedStart, raceStart);
-        const end = Math.min(requestedEnd, raceEnd);
+        const eventStart = Date.parse(fixture.race.startTime);
+        const eventEnd = Date.parse(fixture.race.endTime);
+        const start = Math.max(requestedStart, eventStart);
+        const end = Math.min(requestedEnd, eventEnd);
         if (start > end) {
-          sendJson(200, { raceSlug: slug, tracks: [] });
+          sendJson(200, { eventSlug: slug, tracks: [] });
           return;
         }
         const inRange = (sample: [number, ...number[]]) => {
-          const timestamp = raceStart + sample[0];
+          const timestamp = eventStart + sample[0];
           return timestamp >= start && timestamp <= end;
         };
+        const segments: { positions: [number, number, number][] }[] = [];
+        let current: [number, number, number][] = [];
+        for (const sample of fixture.positions) {
+          const [, longitude, latitude] = sample;
+          const [[west, south], [east, north]] = PUBLICATION_BOUNDS;
+          const visible = inRange(sample)
+            && longitude >= west && longitude <= east
+            && latitude >= south && latitude <= north;
+          if (visible) {
+            current.push(sample);
+          } else if (current.length > 0) {
+            segments.push({ positions: current });
+            current = [];
+          }
+        }
+        if (current.length > 0) segments.push({ positions: current });
+
         sendJson(200, {
-          raceSlug: slug,
+          eventSlug: slug,
           tracks: [{
             entryId: entry.id,
-            positions: fixture.positions.filter(inRange),
+            segments,
             motion: fixture.motion.filter(inRange),
           }],
         });

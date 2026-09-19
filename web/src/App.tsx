@@ -2,16 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { MapView } from './MapView';
 import {
-  formatRaceTime,
+  formatEventTime,
   motionAt,
-  type RaceFixture,
-  type RaceList,
-  type RaceMetadata,
-  type RaceSummary,
+  type EventFixture,
+  type EventList,
+  type EventMetadata,
+  type EventSummary,
   type TrackResponse,
 } from './race';
 
-const RACES_URL = '/api/v1/races';
+const EVENTS_URL = '/api/v1/events';
 const PLAYBACK_TICK_MS = 100;
 const URL_UPDATE_INTERVAL_MS = 1_000;
 
@@ -24,8 +24,9 @@ const TAIL_OPTIONS = [
 ];
 
 export default function App() {
-  const [fixture, setFixture] = useState<RaceFixture>();
-  const [races, setRaces] = useState<RaceSummary[]>([]);
+  const [fixture, setFixture] = useState<EventFixture>();
+  const [events, setEvents] = useState<EventSummary[]>([]);
+  const [liveMode, setLiveMode] = useState(false);
   const [error, setError] = useState<string>();
   const [elapsedMs, setElapsedMs] = useState(0);
   const [tailMs, setTailMs] = useState(120_000);
@@ -36,35 +37,36 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    async function loadRace() {
-      const listResponse = await fetch(RACES_URL);
+    async function loadEvent() {
+      const listResponse = await fetch(EVENTS_URL);
       if (!listResponse.ok) {
         throw new Error(`HTTP ${listResponse.status}`);
       }
-      const raceList = await listResponse.json() as RaceList;
-      if (raceList.races.length === 0) {
-        throw new Error('Keine Regatta verfügbar');
+      const eventList = await listResponse.json() as EventList;
+      if (eventList.events.length === 0) {
+        throw new Error('Keine Veranstaltung verfügbar');
       }
 
-      const pathMatch = window.location.pathname.match(/^\/races\/([^/]+)\/?$/);
-      const slug = pathMatch ? decodeURIComponent(pathMatch[1]) : raceList.races[0].slug;
-      if (!pathMatch) {
+      const pathMatch = window.location.pathname.match(/^\/events\/([^/]+)\/?$/);
+      const isLive = import.meta.env.DEV && window.location.pathname === '/live';
+      const slug = pathMatch ? decodeURIComponent(pathMatch[1]) : eventList.events[0].slug;
+      if (!pathMatch && !isLive) {
         const url = new URL(window.location.href);
-        url.pathname = `/races/${encodeURIComponent(slug)}`;
+        url.pathname = `/events/${encodeURIComponent(slug)}`;
         window.history.replaceState(null, '', url);
       }
 
-      const metadataResponse = await fetch(`/api/v1/races/${encodeURIComponent(slug)}`);
+      const metadataResponse = await fetch(`/api/v1/events/${encodeURIComponent(slug)}`);
       if (!metadataResponse.ok) {
         throw new Error(`HTTP ${metadataResponse.status}`);
       }
-      const metadata = await metadataResponse.json() as RaceMetadata;
+      const metadata = await metadataResponse.json() as EventMetadata;
       const parameters = new URLSearchParams({
-        from: metadata.race.startTime,
-        to: metadata.race.endTime,
+        from: metadata.event.startTime,
+        to: metadata.event.endTime,
       });
       const trackResponse = await fetch(
-        `/api/v1/races/${encodeURIComponent(metadata.race.slug)}/tracks?${parameters}`,
+        `/api/v1/events/${encodeURIComponent(metadata.event.slug)}/tracks?${parameters}`,
       );
       if (!trackResponse.ok) {
         throw new Error(`HTTP ${trackResponse.status}`);
@@ -72,32 +74,35 @@ export default function App() {
       const trackResponseData = await trackResponse.json() as TrackResponse;
       const entry = metadata.entries[0];
       if (!entry) {
-        throw new Error('Der Regatta ist kein Boot zugeordnet');
+        throw new Error('Der Veranstaltung ist kein Boot zugeordnet');
       }
       const track = trackResponseData.tracks.find((candidate) => candidate.entryId === entry.id);
       return {
-        races: raceList.races,
+        events: eventList.events,
+        liveMode: isLive,
         fixture: {
-          race: metadata.race,
+          event: metadata.event,
           boat: { ...entry.boat, color: entry.color },
-          positions: track?.positions ?? [],
+          positions: track?.segments.flatMap((segment) => segment.positions) ?? [],
+          positionSegments: track?.segments.map((segment) => segment.positions) ?? [],
           motion: track?.motion ?? [],
         },
       };
     }
 
-    loadRace()
-      .then((data: { races: RaceSummary[]; fixture: RaceFixture }) => {
+    loadEvent()
+      .then((data: { events: EventSummary[]; fixture: EventFixture; liveMode: boolean }) => {
         if (cancelled) {
           return;
         }
-        const startEpochMs = Date.parse(data.fixture.race.startTime);
-        const durationMs = Date.parse(data.fixture.race.endTime) - startEpochMs;
+        const startEpochMs = Date.parse(data.fixture.event.startTime);
+        const durationMs = Date.parse(data.fixture.event.endTime) - startEpochMs;
         const requestedTime = Date.parse(new URLSearchParams(window.location.search).get('at') ?? '');
         const initialElapsedMs = Number.isFinite(requestedTime)
           ? Math.max(0, Math.min(durationMs, requestedTime - startEpochMs))
-          : (data.fixture.positions[0]?.[0] ?? 0);
-        setRaces(data.races);
+          : (data.liveMode ? durationMs : (data.fixture.positions[0]?.[0] ?? 0));
+        setEvents(data.events);
+        setLiveMode(data.liveMode);
         setFixture(data.fixture);
         setElapsedMs(initialElapsedMs);
       })
@@ -112,11 +117,11 @@ export default function App() {
   }, []);
 
   const durationMs = fixture
-    ? Date.parse(fixture.race.endTime) - Date.parse(fixture.race.startTime)
+    ? Date.parse(fixture.event.endTime) - Date.parse(fixture.event.startTime)
     : 0;
 
   useEffect(() => {
-    if (!playing || !fixture) {
+    if (!playing || !fixture || liveMode) {
       return;
     }
     const timer = window.setInterval(() => {
@@ -130,9 +135,9 @@ export default function App() {
       });
     }, PLAYBACK_TICK_MS);
     return () => window.clearInterval(timer);
-  }, [durationMs, fixture, playbackRate, playing]);
+  }, [durationMs, fixture, liveMode, playbackRate, playing]);
 
-  const startEpochMs = fixture ? Date.parse(fixture.race.startTime) : 0;
+  const startEpochMs = fixture ? Date.parse(fixture.event.startTime) : 0;
   const selectedEpochMs = startEpochMs + elapsedMs;
   const motion = useMemo(
     () => (fixture ? motionAt(fixture.motion, elapsedMs) : undefined),
@@ -141,7 +146,7 @@ export default function App() {
   const atEnd = durationMs > 0 && durationMs - elapsedMs < 1_000;
 
   useEffect(() => {
-    if (!fixture) {
+    if (!fixture || liveMode) {
       return;
     }
     const now = performance.now();
@@ -152,20 +157,20 @@ export default function App() {
     url.searchParams.set('at', new Date(selectedEpochMs).toISOString());
     window.history.replaceState(null, '', url);
     lastUrlUpdateRef.current = now;
-  }, [fixture, playing, selectedEpochMs]);
+  }, [fixture, liveMode, playing, selectedEpochMs]);
 
   if (error) {
     return (
       <main className="center-message">
         <h1>Open Sail Tracker</h1>
-        <p>Die Regattadaten konnten nicht geladen werden.</p>
+        <p>Die Veranstaltungsdaten konnten nicht geladen werden.</p>
         <code>{error}</code>
       </main>
     );
   }
 
   if (!fixture) {
-    return <main className="center-message">Regattakarte wird geladen …</main>;
+    return <main className="center-message">Veranstaltung wird geladen …</main>;
   }
 
   function togglePlayback() {
@@ -186,27 +191,30 @@ export default function App() {
 
       <header className="top-bar panel">
         <div>
-          <p className="eyebrow">Open Sail Tracker · Aufzeichnung</p>
-          <h1>{fixture.race.name}</h1>
+          <p className="eyebrow">Open Sail Tracker · {liveMode ? 'Live' : 'Aufzeichnung'}</p>
+          <h1>{liveMode ? 'Live' : fixture.event.name}</h1>
         </div>
-        {races.length > 1 && (
+        {(events.length > 1 || import.meta.env.DEV) && (
           <label>
-            Regatta
+            Veranstaltung
             <select
-              value={fixture.race.slug}
+              value={liveMode ? '__live__' : fixture.event.slug}
               onChange={(event) => {
                 const url = new URL(window.location.href);
-                url.pathname = `/races/${encodeURIComponent(event.target.value)}`;
+                url.pathname = event.target.value === '__live__'
+                  ? '/live'
+                  : `/events/${encodeURIComponent(event.target.value)}`;
                 url.searchParams.delete('at');
                 window.location.assign(url);
               }}
             >
-              {races.map((race) => <option key={race.slug} value={race.slug}>{race.name}</option>)}
+              {import.meta.env.DEV && <option value="__live__">Live</option>}
+              {events.map((event) => <option key={event.slug} value={event.slug}>{event.name}</option>)}
             </select>
           </label>
         )}
-        <div className={`mode-badge ${atEnd ? 'mode-badge--live' : ''}`}>
-          {atEnd ? 'Am Ende' : 'Wiedergabe'}
+        <div className={`mode-badge ${liveMode || atEnd ? 'mode-badge--live' : ''}`}>
+          {liveMode ? 'Live' : (atEnd ? 'Am Ende' : 'Wiedergabe')}
         </div>
       </header>
 
@@ -235,7 +243,7 @@ export default function App() {
         </div>
       </aside>
 
-      <section className="timeline panel" aria-label="Zeitsteuerung">
+      {!liveMode && <section className="timeline panel" aria-label="Zeitsteuerung">
         <div className="timeline__controls">
           <button type="button" className="control-button control-button--primary" onClick={togglePlayback}>
             {playing ? 'Pause' : 'Abspielen'}
@@ -276,7 +284,7 @@ export default function App() {
         </div>
 
         <div className="timeline__scrubber">
-          <time>{formatRaceTime(startEpochMs)}</time>
+          <time>{formatEventTime(startEpochMs)}</time>
           <input
             aria-label="Zeitpunkt"
             type="range"
@@ -289,10 +297,10 @@ export default function App() {
               setElapsedMs(Number(event.target.value));
             }}
           />
-          <time>{formatRaceTime(startEpochMs + durationMs)}</time>
+          <time>{formatEventTime(startEpochMs + durationMs)}</time>
         </div>
-        <output className="timeline__time">{formatRaceTime(selectedEpochMs)}</output>
-      </section>
+        <output className="timeline__time">{formatEventTime(selectedEpochMs)}</output>
+      </section>}
     </main>
   );
 }

@@ -2,31 +2,32 @@ export type Bounds = [[number, number], [number, number]];
 export type PositionSample = [elapsedMs: number, longitude: number, latitude: number];
 export type MotionSample = [elapsedMs: number, speedKnots: number, courseDegrees: number];
 
-export interface RaceSummary {
+export interface EventSummary {
   slug: string;
   name: string;
   startTime: string;
   endTime: string;
 }
 
-export interface RaceList {
-  races: RaceSummary[];
+export interface EventList {
+  events: EventSummary[];
 }
 
-export interface RaceMetadata {
-  race: RaceSummary & {
+export interface EventMetadata {
+  event: EventSummary & {
     initialBounds: Bounds;
+    publicationBounds: Bounds;
     course: {
       type: 'FeatureCollection';
       features: unknown[];
     };
   };
-  entries: RaceEntry[];
+  entries: EventEntry[];
 }
 
-export interface RaceEntry {
+export interface EventEntry {
   id: string;
-  trackerNumber: string;
+  trackerNumbers: string[];
   color: string;
   boat: {
     id: string;
@@ -35,21 +36,26 @@ export interface RaceEntry {
   };
 }
 
-export interface RaceTrack {
-  entryId: string;
+export interface PositionSegment {
   positions: PositionSample[];
+}
+
+export interface EventTrack {
+  entryId: string;
+  segments: PositionSegment[];
   motion: MotionSample[];
 }
 
 export interface TrackResponse {
-  raceSlug: string;
-  tracks: RaceTrack[];
+  eventSlug: string;
+  tracks: EventTrack[];
 }
 
-export interface RaceFixture {
-  race: RaceMetadata['race'];
-  boat: RaceEntry['boat'] & { color: string };
+export interface EventFixture {
+  event: EventMetadata['event'];
+  boat: EventEntry['boat'] & { color: string };
   positions: PositionSample[];
+  positionSegments: PositionSample[][];
   motion: MotionSample[];
 }
 
@@ -73,14 +79,15 @@ function sampleAtOrBefore<T extends [number, ...unknown[]]>(samples: T[], elapse
 }
 
 export function positionAt(samples: PositionSample[], elapsedMs: number): PositionSample | undefined {
-  return sampleAtOrBefore(samples, elapsedMs);
+  const sample = sampleAtOrBefore(samples, elapsedMs);
+  return sample && elapsedMs - sample[0] <= 5_000 ? sample : undefined;
 }
 
 export function motionAt(samples: MotionSample[], elapsedMs: number): MotionSample | undefined {
   return sampleAtOrBefore(samples, elapsedMs);
 }
 
-export function formatRaceTime(epochMs: number): string {
+export function formatEventTime(epochMs: number): string {
   return new Intl.DateTimeFormat('de-DE', {
     timeZone: 'Europe/Berlin',
     hour: '2-digit',

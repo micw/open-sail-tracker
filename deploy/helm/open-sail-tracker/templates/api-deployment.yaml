@@ -42,13 +42,13 @@ spec:
               protocol: TCP
           readinessProbe:
             httpGet:
-              path: /api/v1/races
+              path: /api/v1/events
               port: http
             initialDelaySeconds: 2
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /api/v1/races
+              path: /api/v1/events
               port: http
             initialDelaySeconds: 10
             periodSeconds: 20

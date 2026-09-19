@@ -11,7 +11,7 @@ import type {
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 
-import { motionAt, positionAt, type RaceFixture } from './race';
+import { motionAt, positionAt, type EventFixture } from './race';
 
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
@@ -43,56 +43,61 @@ const RASTER_STYLE: StyleSpecification = {
 };
 
 interface MapViewProps {
-  fixture: RaceFixture;
+  fixture: EventFixture;
   elapsedMs: number;
   tailMs: number;
   showHistory: boolean;
 }
 
-function lineFeature(coordinates: [number, number][]): FeatureCollection<LineString> {
-  if (coordinates.length < 2) {
+function lineFeatures(segments: [number, number][][]): FeatureCollection<LineString> {
+  const visibleSegments = segments.filter((coordinates) => coordinates.length >= 2);
+  if (visibleSegments.length === 0) {
     return EMPTY_LINE;
   }
   return {
     type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        properties: {},
-        geometry: { type: 'LineString', coordinates },
-      },
-    ],
+    features: visibleSegments.map((coordinates) => ({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates },
+    })),
   };
 }
 
-function setLine(map: MapLibreMap, sourceId: string, coordinates: [number, number][]) {
-  (map.getSource(sourceId) as GeoJSONSource | undefined)?.setData(lineFeature(coordinates));
+function setLines(map: MapLibreMap, sourceId: string, segments: [number, number][][]) {
+  (map.getSource(sourceId) as GeoJSONSource | undefined)?.setData(lineFeatures(segments));
 }
 
 function splitTrack(
-  fixture: RaceFixture,
+  fixture: EventFixture,
   elapsedMs: number,
   tailMs: number,
   showHistory: boolean,
 ) {
   const cutoff = Math.max(0, elapsedMs - tailMs);
-  const history: [number, number][] = [];
-  const recent: [number, number][] = [];
-  let previousCoordinate: [number, number] | undefined;
+  const history: [number, number][][] = [];
+  const recent: [number, number][][] = [];
 
-  for (const [sampleTime, longitude, latitude] of fixture.positions) {
-    const coordinate: [number, number] = [longitude, latitude];
-    if (sampleTime < cutoff) {
-      if (showHistory) {
-        history.push(coordinate);
+  for (const segment of fixture.positionSegments) {
+    const historySegment: [number, number][] = [];
+    const recentSegment: [number, number][] = [];
+    let previousCoordinate: [number, number] | undefined;
+    for (const [sampleTime, longitude, latitude] of segment) {
+      const coordinate: [number, number] = [longitude, latitude];
+      if (sampleTime < cutoff) {
+        if (showHistory) {
+          historySegment.push(coordinate);
+        }
+      } else if (sampleTime <= elapsedMs) {
+        if (recentSegment.length === 0 && previousCoordinate) {
+          recentSegment.push(previousCoordinate);
+        }
+        recentSegment.push(coordinate);
       }
-    } else if (sampleTime <= elapsedMs) {
-      if (recent.length === 0 && previousCoordinate) {
-        recent.push(previousCoordinate);
-      }
-      recent.push(coordinate);
+      previousCoordinate = coordinate;
     }
-    previousCoordinate = coordinate;
+    if (historySegment.length > 0) history.push(historySegment);
+    if (recentSegment.length > 0) recent.push(recentSegment);
   }
 
   return { history, recent };
@@ -126,7 +131,7 @@ export function MapView({ fixture, elapsedMs, tailMs, showHistory }: MapViewProp
       return;
     }
 
-    const bounds = fixture.race.initialBounds as LngLatBoundsLike;
+    const bounds = fixture.event.initialBounds as LngLatBoundsLike;
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: RASTER_STYLE,
@@ -149,12 +154,14 @@ export function MapView({ fixture, elapsedMs, tailMs, showHistory }: MapViewProp
 
     map.once('load', () => {
       const initialTrack = splitTrack(fixture, elapsedMs, tailMs, showHistory);
-      const completeTrack = fixture.positions.map(
-        ([, longitude, latitude]): [number, number] => [longitude, latitude],
+      const completeTrack = fixture.positionSegments.map(
+        (segment) => segment.map(
+          ([, longitude, latitude]): [number, number] => [longitude, latitude],
+        ),
       );
-      map.addSource('track-complete', { type: 'geojson', data: lineFeature(completeTrack) });
-      map.addSource('track-history', { type: 'geojson', data: lineFeature(initialTrack.history) });
-      map.addSource('track-recent', { type: 'geojson', data: lineFeature(initialTrack.recent) });
+      map.addSource('track-complete', { type: 'geojson', data: lineFeatures(completeTrack) });
+      map.addSource('track-history', { type: 'geojson', data: lineFeatures(initialTrack.history) });
+      map.addSource('track-recent', { type: 'geojson', data: lineFeatures(initialTrack.recent) });
 
       map.addLayer({
         id: 'track-future',
@@ -214,8 +221,8 @@ export function MapView({ fixture, elapsedMs, tailMs, showHistory }: MapViewProp
     }
 
     const track = splitTrack(fixture, elapsedMs, tailMs, showHistory);
-    setLine(map, 'track-history', track.history);
-    setLine(map, 'track-recent', track.recent);
+    setLines(map, 'track-history', track.history);
+    setLines(map, 'track-recent', track.recent);
 
     const position = positionAt(fixture.positions, elapsedMs);
     if (!position) {
@@ -233,5 +240,5 @@ export function MapView({ fixture, elapsedMs, tailMs, showHistory }: MapViewProp
     }
   }, [elapsedMs, fixture, showHistory, styleRevision, tailMs]);
 
-  return <div ref={containerRef} className="map" aria-label="Regattakarte" />;
+  return <div ref={containerRef} className="map" aria-label="Veranstaltungskarte" />;
 }

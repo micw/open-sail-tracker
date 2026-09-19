@@ -1,4 +1,4 @@
-"""Unauthenticated HTTP API for races and bounded tracker replay data."""
+"""Unauthenticated HTTP API for public events and bounded tracker replay data."""
 
 from __future__ import annotations
 
@@ -26,22 +26,31 @@ class Boat:
 
 
 @dataclass(frozen=True)
-class RaceEntry:
-    id: str
-    boat: Boat
-    color: str
+class TrackerAssignment:
     tracker_number: str
     telemetry_device_id: str
+    valid_from: str | None = None
+    valid_to: str | None = None
 
 
 @dataclass(frozen=True)
-class Race:
+class EventEntry:
+    id: str
+    boat: Boat
+    color: str
+    tracker_assignments: tuple[TrackerAssignment, ...]
+
+
+@dataclass(frozen=True)
+class Event:
     slug: str
     name: str
     start_time: str
     end_time: str
     initial_bounds: list[list[float]]
-    entries: tuple[RaceEntry, ...]
+    publication_bounds: list[list[float]]
+    entries: tuple[EventEntry, ...]
+    public: bool = True
 
     @property
     def start_ms(self) -> int:
@@ -61,15 +70,19 @@ class Race:
 
     def public_dict(self) -> dict[str, Any]:
         return {
-            "race": {
+            "event": {
                 **self.summary_dict(),
                 "initialBounds": self.initial_bounds,
+                "publicationBounds": self.publication_bounds,
                 "course": {"type": "FeatureCollection", "features": []},
             },
             "entries": [
                 {
                     "id": entry.id,
-                    "trackerNumber": entry.tracker_number,
+                    "trackerNumbers": [
+                        assignment.tracker_number
+                        for assignment in entry.tracker_assignments
+                    ],
                     "color": entry.color,
                     "boat": {
                         "id": entry.boat.id,
@@ -82,51 +95,66 @@ class Race:
         }
 
 
-class RaceRepository(Protocol):
-    """Source of race metadata and tracker-to-entry assignments."""
+class EventRepository(Protocol):
+    """Source of event metadata and time-bounded tracker assignments."""
 
-    def list_races(self) -> list[Race]: ...
+    def list_public_events(self) -> list[Event]: ...
 
-    def get_race(self, slug: str) -> Race | None: ...
+    def get_public_event(self, slug: str) -> Event | None: ...
 
 
 class TelemetryRepository(Protocol):
-    """Source of tracks for entries assigned to a race."""
+    """Source of raw tracks for trackers assigned to an event."""
 
-    def get_tracks(self, race: Race, start_ms: int, end_ms: int) -> list[dict[str, Any]]: ...
-
-
-class StaticRaceRepository:
-    def __init__(self, races: tuple[Race, ...]) -> None:
-        self.races = races
-        self.by_slug = {race.slug: race for race in races}
-        if len(self.by_slug) != len(races):
-            raise ValueError("race slugs must be unique")
-
-    def list_races(self) -> list[Race]:
-        return list(self.races)
-
-    def get_race(self, slug: str) -> Race | None:
-        return self.by_slug.get(slug)
+    def get_tracks(self, event: Event, start_ms: int, end_ms: int) -> list[dict[str, Any]]: ...
 
 
-TEST_RACE = Race(
+class TrackVisibilityPolicy(Protocol):
+    """Remove telemetry that the current audience must not receive."""
+
+    def publish_tracks(self, event: Event, tracks: list[dict[str, Any]]) -> list[dict[str, Any]]: ...
+
+
+class StaticEventRepository:
+    def __init__(self, events: tuple[Event, ...]) -> None:
+        self.events = events
+        self.by_slug = {event.slug: event for event in events}
+        if len(self.by_slug) != len(events):
+            raise ValueError("event slugs must be unique")
+
+    def list_public_events(self) -> list[Event]:
+        return [event for event in self.events if event.public]
+
+    def get_public_event(self, slug: str) -> Event | None:
+        event = self.by_slug.get(slug)
+        return event if event is not None and event.public else None
+
+
+TEST_EVENT = Event(
     slug="training-2026-09-19",
     name="Training vom 19. September",
     start_time="2026-09-19T10:50:00+02:00",
     end_time="2026-09-19T12:45:00+02:00",
     initial_bounds=[[12.2367, 51.3047], [12.2514, 51.3168]],
+    publication_bounds=[
+        [12.236718465054931, 51.296003387362596],
+        [12.258043783104087, 51.31842232597056],
+    ],
     entries=(
-        RaceEntry(
+        EventEntry(
             id="test-entry",
             boat=Boat(id="test-boat", sail_number="TEST", name="Testskiff"),
             color="#ef476f",
-            tracker_number="01",
-            telemetry_device_id="4c939764",
+            tracker_assignments=(
+                TrackerAssignment(
+                    tracker_number="01",
+                    telemetry_device_id="4c939764",
+                ),
+            ),
         ),
     ),
 )
-RACE_REPOSITORY = StaticRaceRepository((TEST_RACE,))
+EVENT_REPOSITORY = StaticEventRepository((TEST_EVENT,))
 
 
 def parse_datetime(value: str) -> int:
@@ -139,17 +167,29 @@ def parse_datetime(value: str) -> int:
     return int(parsed.timestamp() * 1000)
 
 
-def bounded_query_range(parameters: dict[str, list[str]], race: Race) -> tuple[int, int] | None:
-    """Validate and clamp a requested interval to the race's hard boundaries."""
+def bounded_query_range(parameters: dict[str, list[str]], event: Event) -> tuple[int, int] | None:
+    """Validate and clamp a requested interval to the event's hard boundaries."""
     if len(parameters.get("from", [])) != 1 or len(parameters.get("to", [])) != 1:
         raise ValueError("from and to must each be supplied once")
     requested_start = parse_datetime(parameters["from"][0])
     requested_end = parse_datetime(parameters["to"][0])
     if requested_start > requested_end:
         raise ValueError("from must not be later than to")
-    start_ms = max(requested_start, race.start_ms)
-    end_ms = min(requested_end, race.end_ms)
+    start_ms = max(requested_start, event.start_ms)
+    end_ms = min(requested_end, event.end_ms)
     return None if start_ms > end_ms else (start_ms, end_ms)
+
+
+def assignment_range(
+    assignment: TrackerAssignment,
+    start_ms: int,
+    end_ms: int,
+) -> tuple[int, int] | None:
+    assigned_start = parse_datetime(assignment.valid_from) if assignment.valid_from else start_ms
+    assigned_end = parse_datetime(assignment.valid_to) if assignment.valid_to else end_ms
+    effective_start = max(start_ms, assigned_start)
+    effective_end = min(end_ms, assigned_end)
+    return None if effective_start > effective_end else (effective_start, effective_end)
 
 
 class VictoriaMetricsTelemetryRepository:
@@ -203,83 +243,136 @@ class VictoriaMetricsTelemetryRepository:
                         samples[timestamp_ms] = float(value)
         return samples
 
-    def _entry_track(
+    def _assignment_track(
         self,
-        entry: RaceEntry,
-        race_start_ms: int,
+        assignment: TrackerAssignment,
+        event_start_ms: int,
         start_ms: int,
         end_ms: int,
-    ) -> dict[str, Any]:
-        device_id = entry.telemetry_device_id
+    ) -> tuple[list[list[float | int]], list[list[float | int]]]:
+        device_id = assignment.telemetry_device_id
         latitude = self._metric("latitude", "position", device_id, start_ms, end_ms)
         longitude = self._metric("longitude", "position", device_id, start_ms, end_ms)
         current_fix = self._metric("fix_current", "position", device_id, start_ms, end_ms)
         speed = self._metric("speed_mps", "status", device_id, start_ms, end_ms)
         course = self._metric("course_deg", "status", device_id, start_ms, end_ms)
 
-        positions: list[list[float | int]] = []
-        for timestamp in sorted(latitude.keys() & longitude.keys() & current_fix.keys()):
-            if current_fix[timestamp] == 1:
-                positions.append(
-                    [timestamp - race_start_ms, longitude[timestamp], latitude[timestamp]]
-                )
-
-        motion: list[list[float | int]] = []
-        for timestamp in sorted(speed.keys() & course.keys()):
-            motion.append(
-                [timestamp - race_start_ms, speed[timestamp] * KNOTS_PER_MPS, course[timestamp]]
-            )
-        return {"entryId": entry.id, "positions": positions, "motion": motion}
-
-    def get_tracks(self, race: Race, start_ms: int, end_ms: int) -> list[dict[str, Any]]:
-        return [
-            self._entry_track(entry, race.start_ms, start_ms, end_ms)
-            for entry in race.entries
+        positions = [
+            [timestamp - event_start_ms, longitude[timestamp], latitude[timestamp]]
+            for timestamp in sorted(latitude.keys() & longitude.keys() & current_fix.keys())
+            if current_fix[timestamp] == 1
         ]
+        motion = [
+            [timestamp - event_start_ms, speed[timestamp] * KNOTS_PER_MPS, course[timestamp]]
+            for timestamp in sorted(speed.keys() & course.keys())
+        ]
+        return positions, motion
+
+    def get_tracks(self, event: Event, start_ms: int, end_ms: int) -> list[dict[str, Any]]:
+        tracks: list[dict[str, Any]] = []
+        for entry in event.entries:
+            positions: list[list[float | int]] = []
+            motion: list[list[float | int]] = []
+            for assignment in entry.tracker_assignments:
+                interval = assignment_range(assignment, start_ms, end_ms)
+                if interval is None:
+                    continue
+                assignment_positions, assignment_motion = self._assignment_track(
+                    assignment,
+                    event.start_ms,
+                    *interval,
+                )
+                positions.extend(assignment_positions)
+                motion.extend(assignment_motion)
+            positions.sort(key=lambda sample: sample[0])
+            motion.sort(key=lambda sample: sample[0])
+            tracks.append({"entryId": entry.id, "positions": positions, "motion": motion})
+        return tracks
 
 
-class RaceService:
-    def __init__(self, races: RaceRepository, telemetry: TelemetryRepository) -> None:
-        self.races = races
+class GuestTrackVisibilityPolicy:
+    """Publish only positions inside an event's public geographic boundary."""
+
+    @staticmethod
+    def _inside(bounds: list[list[float]], longitude: float, latitude: float) -> bool:
+        (west, south), (east, north) = bounds
+        return west <= longitude <= east and south <= latitude <= north
+
+    def publish_tracks(self, event: Event, tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        published: list[dict[str, Any]] = []
+        for track in tracks:
+            segments: list[dict[str, Any]] = []
+            current: list[list[float | int]] = []
+            for sample in track["positions"]:
+                if self._inside(event.publication_bounds, float(sample[1]), float(sample[2])):
+                    current.append(sample)
+                elif current:
+                    segments.append({"positions": current})
+                    current = []
+            if current:
+                segments.append({"positions": current})
+            published.append(
+                {
+                    "entryId": track["entryId"],
+                    "segments": segments,
+                    "motion": track["motion"],
+                }
+            )
+        return published
+
+
+class EventService:
+    def __init__(
+        self,
+        events: EventRepository,
+        telemetry: TelemetryRepository,
+        visibility: TrackVisibilityPolicy,
+    ) -> None:
+        self.events = events
         self.telemetry = telemetry
+        self.visibility = visibility
 
-    def list_races(self) -> dict[str, Any]:
-        return {"races": [race.summary_dict() for race in self.races.list_races()]}
+    def list_events(self) -> dict[str, Any]:
+        return {"events": [event.summary_dict() for event in self.events.list_public_events()]}
 
-    def race_details(self, slug: str) -> dict[str, Any] | None:
-        race = self.races.get_race(slug)
-        return None if race is None else race.public_dict()
+    def event_details(self, slug: str) -> dict[str, Any] | None:
+        event = self.events.get_public_event(slug)
+        return None if event is None else event.public_dict()
 
     def tracks(self, slug: str, parameters: dict[str, list[str]]) -> dict[str, Any] | None:
-        race = self.races.get_race(slug)
-        if race is None:
+        event = self.events.get_public_event(slug)
+        if event is None:
             return None
-        interval = bounded_query_range(parameters, race)
+        interval = bounded_query_range(parameters, event)
         if interval is None:
-            return {"raceSlug": race.slug, "tracks": []}
+            return {"eventSlug": event.slug, "tracks": []}
+        raw_tracks = self.telemetry.get_tracks(event, *interval)
         return {
-            "raceSlug": race.slug,
-            "tracks": self.telemetry.get_tracks(race, *interval),
+            "eventSlug": event.slug,
+            "tracks": self.visibility.publish_tracks(event, raw_tracks),
         }
 
 
 class ApiHandler(BaseHTTPRequestHandler):
-    service: RaceService
+    service: EventService
 
     def do_GET(self) -> None:  # noqa: N802 - method name is defined by BaseHTTPRequestHandler
         parsed = urllib.parse.urlsplit(self.path)
-        if parsed.path == "/api/v1/races":
-            self._json(200, self.service.list_races())
+        if parsed.path == "/api/v1/events":
+            self._json(200, self.service.list_events())
             return
 
         parts = parsed.path.strip("/").split("/")
-        if len(parts) not in (4, 5) or parts[:3] != ["api", "v1", "races"]:
+        if len(parts) not in (4, 5) or parts[:3] != ["api", "v1", "events"]:
             self._json(404, {"error": "not_found"})
             return
         slug = urllib.parse.unquote(parts[3])
         if len(parts) == 4:
-            details = self.service.race_details(slug)
-            self._json(200, details) if details is not None else self._json(404, {"error": "not_found"})
+            details = self.service.event_details(slug)
+            if details is None:
+                self._json(404, {"error": "not_found"})
+            else:
+                self._json(200, details)
             return
         if parts[4] != "tracks":
             self._json(404, {"error": "not_found"})
@@ -294,7 +387,10 @@ class ApiHandler(BaseHTTPRequestHandler):
             LOGGER.exception("Telemetry query failed")
             self._json(502, {"error": "telemetry_unavailable", "message": str(error)})
             return
-        self._json(200, result) if result is not None else self._json(404, {"error": "not_found"})
+        if result is None:
+            self._json(404, {"error": "not_found"})
+        else:
+            self._json(200, result)
 
     def _json(self, status: int, value: object) -> None:
         body = json.dumps(value, separators=(",", ":")).encode("utf-8")
@@ -311,7 +407,7 @@ class ApiHandler(BaseHTTPRequestHandler):
 
 def serve(host: str, port: int, victoria_metrics_url: str) -> None:
     telemetry = VictoriaMetricsTelemetryRepository(victoria_metrics_url)
-    service = RaceService(RACE_REPOSITORY, telemetry)
+    service = EventService(EVENT_REPOSITORY, telemetry, GuestTrackVisibilityPolicy())
     handler = type("ConfiguredApiHandler", (ApiHandler,), {"service": service})
     server = ThreadingHTTPServer((host, port), handler)
     LOGGER.info(json.dumps({"event": "web_api_started", "host": host, "port": port}))
