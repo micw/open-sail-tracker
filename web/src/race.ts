@@ -84,7 +84,8 @@ export function positionAt(samples: PositionSample[], elapsedMs: number): Positi
 }
 
 export function motionAt(samples: MotionSample[], elapsedMs: number): MotionSample | undefined {
-  return sampleAtOrBefore(samples, elapsedMs);
+  const sample = sampleAtOrBefore(samples, elapsedMs);
+  return sample && elapsedMs - sample[0] <= 15_000 ? sample : undefined;
 }
 
 export function formatEventTime(epochMs: number): string {

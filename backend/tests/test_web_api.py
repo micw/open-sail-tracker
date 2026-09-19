@@ -86,6 +86,9 @@ class TrackAssemblyTests(unittest.TestCase):
                 ("fix_current", "position"): {first: 1, stale: 0},
                 ("speed_mps", "status"): {status: 2.0},
                 ("course_deg", "status"): {status: 123.4},
+                ("latitude", "status"): {status: 51.31},
+                ("longitude", "status"): {status: 12.24},
+                ("fix_current", "status"): {status: 1},
             }
         )
 
@@ -107,7 +110,10 @@ class GuestVisibilityTests(unittest.TestCase):
                     [3_000, 12.27, 51.31],
                     [4_000, 12.25, 51.30],
                 ],
-                "motion": [[1_000, 2.0, 90.0]],
+                "motion": [
+                    [1_000, 2.0, 90.0, 12.24, 51.31],
+                    [2_000, 3.0, 180.0, 12.27, 51.31],
+                ],
             }
         ]
 
@@ -120,6 +126,7 @@ class GuestVisibilityTests(unittest.TestCase):
                 {"positions": [[4_000, 12.25, 51.30]]},
             ],
         )
+        self.assertEqual(result[0]["motion"], [[1_000, 2.0, 90.0]])
         self.assertNotIn("12.27", str(result))
 
     def test_includes_points_on_publication_boundary(self) -> None:

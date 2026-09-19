@@ -258,6 +258,9 @@ class VictoriaMetricsTelemetryRepository:
         current_fix = self._metric("fix_current", "position", device_id, start_ms, end_ms)
         speed = self._metric("speed_mps", "status", device_id, start_ms, end_ms)
         course = self._metric("course_deg", "status", device_id, start_ms, end_ms)
+        status_latitude = self._metric("latitude", "status", device_id, start_ms, end_ms)
+        status_longitude = self._metric("longitude", "status", device_id, start_ms, end_ms)
+        status_fix = self._metric("fix_current", "status", device_id, start_ms, end_ms)
 
         positions = [
             [timestamp - event_start_ms, longitude[timestamp], latitude[timestamp]]
@@ -265,8 +268,21 @@ class VictoriaMetricsTelemetryRepository:
             if current_fix[timestamp] == 1
         ]
         motion = [
-            [timestamp - event_start_ms, speed[timestamp] * KNOTS_PER_MPS, course[timestamp]]
-            for timestamp in sorted(speed.keys() & course.keys())
+            [
+                timestamp - event_start_ms,
+                speed[timestamp] * KNOTS_PER_MPS,
+                course[timestamp],
+                status_longitude[timestamp],
+                status_latitude[timestamp],
+            ]
+            for timestamp in sorted(
+                speed.keys()
+                & course.keys()
+                & status_latitude.keys()
+                & status_longitude.keys()
+                & status_fix.keys()
+            )
+            if status_fix[timestamp] == 1
         ]
         return positions, motion
 
@@ -313,11 +329,16 @@ class GuestTrackVisibilityPolicy:
                     current = []
             if current:
                 segments.append({"positions": current})
+            motion = [
+                sample[:3]
+                for sample in track["motion"]
+                if self._inside(event.publication_bounds, float(sample[3]), float(sample[4]))
+            ]
             published.append(
                 {
                     "entryId": track["entryId"],
                     "segments": segments,
-                    "motion": track["motion"],
+                    "motion": motion,
                 }
             )
         return published
