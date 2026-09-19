@@ -7,6 +7,8 @@ metadata:
     app.kubernetes.io/component: backend
 spec:
   replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: {{ ternary "Recreate" "RollingUpdate" .Values.hostPort.enabled }}
   selector:
     matchLabels:
       {{- include "open-sail-tracker.selectorLabels" . | nindent 6 }}
