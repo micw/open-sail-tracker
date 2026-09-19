@@ -38,6 +38,8 @@ Thumbs.db
 *.tmp
 *.autosave
 ~$*
+/enclosure/h802_reference_path.txt
+/enclosure/h802_reference_reduced.brep
 
 # Local measurements and device-specific exports
 measurements/local/
