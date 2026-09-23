@@ -5,6 +5,8 @@ from typing import Any
 
 from open_sail_tracker_backend.web_api import (
     EVENT_REPOSITORY,
+    PILSENSEE_BOUNDS,
+    PILSENSEE_EVENTS,
     TEST_EVENT,
     Event,
     EventService,
@@ -50,9 +52,19 @@ class QueryBoundaryTests(unittest.TestCase):
 
 class StaticEventRepositoryTests(unittest.TestCase):
     def test_lists_and_resolves_public_events_by_slug(self) -> None:
-        self.assertEqual(EVENT_REPOSITORY.list_public_events(), [TEST_EVENT])
+        self.assertEqual(EVENT_REPOSITORY.list_public_events(), [*PILSENSEE_EVENTS, TEST_EVENT])
         self.assertIs(EVENT_REPOSITORY.get_public_event(TEST_EVENT.slug), TEST_EVENT)
         self.assertIsNone(EVENT_REPOSITORY.get_public_event("missing"))
+
+    def test_defines_three_bounded_pilsensee_test_days(self) -> None:
+        self.assertEqual(len(PILSENSEE_EVENTS), 3)
+        for event in PILSENSEE_EVENTS:
+            self.assertEqual(event.initial_bounds, PILSENSEE_BOUNDS)
+            self.assertEqual(event.publication_bounds, PILSENSEE_BOUNDS)
+            self.assertTrue(event.start_time.endswith("T08:00:00+02:00"))
+            self.assertTrue(event.end_time.endswith("T18:00:00+02:00"))
+            assignment = event.entries[0].tracker_assignments[0]
+            self.assertEqual(assignment.telemetry_device_id, "4c939764")
 
     def test_rejects_duplicate_slugs(self) -> None:
         with self.assertRaisesRegex(ValueError, "unique"):
@@ -158,7 +170,8 @@ class EventServiceTests(unittest.TestCase):
         listed = service.list_events()
         details = service.event_details(TEST_EVENT.slug)
 
-        self.assertEqual(listed["events"][0]["slug"], TEST_EVENT.slug)
+        self.assertEqual(listed["events"][0]["slug"], PILSENSEE_EVENTS[0].slug)
+        self.assertIn(TEST_EVENT.slug, [event["slug"] for event in listed["events"]])
         self.assertEqual(details["entries"][0]["trackerNumbers"], ["01"])  # type: ignore[index]
         self.assertNotIn("telemetryDeviceId", str(details))
 

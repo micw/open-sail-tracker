@@ -68,7 +68,9 @@ The initial API has three unauthenticated resources:
 | `GET` | `/api/v1/live` | Public live-view metadata and geographic boundary |
 | `GET` | `/api/v1/live/tracks` | Geofenced tracks from the most recent four hours |
 
-`EventRepository` abstracts event metadata; its current implementation is a static list containing the test event. `TelemetryRepository` abstracts raw track data; the online implementation reads VictoriaMetrics. Internal telemetry device IDs remain in the event repository and are not exposed by the API.
+`EventRepository` abstracts event metadata; its current implementation is a static list of proof-of-concept events. `TelemetryRepository` abstracts raw track data; the online implementation reads VictoriaMetrics. Internal telemetry device IDs remain in the event repository and are not exposed by the API.
+
+The static proof-of-concept repository currently also defines three Pilsensee test events for 25–27 September 2026, each from 08:00 to 18:00 Europe/Berlin. Tracker `4c939764` is assigned internally to public tracker number `01`. The publication rectangle is limited to the provided Pilsensee bounds. These are deliberately three technical events until the multi-session event model in the backlog is implemented.
 
 Both query timestamps must be ISO 8601 values with a time zone. The service intersects every query with the event interval and the tracker-assignment interval before calling the telemetry repository. The guest visibility policy then removes coordinates outside the event's publication bounds and splits the track so hidden excursions cannot be connected by a rendered line. A query wholly outside the event interval returns an empty track list. Positions for which the tracker reported `fix_current=false` are omitted rather than presenting stale coordinates as movement.
 

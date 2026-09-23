@@ -24,6 +24,10 @@ const TAIL_OPTIONS = [
   { value: 900_000, label: '15 Minuten' },
 ];
 
+function eventIsActive(event: EventSummary, nowMs = Date.now()) {
+  return Date.parse(event.startTime) <= nowMs && nowMs <= Date.parse(event.endTime);
+}
+
 function toFixture(metadata: EventMetadata, trackResponse: TrackResponse): EventFixture {
   const entry = metadata.entries[0];
   if (!entry) {
@@ -65,7 +69,10 @@ export default function App() {
 
       const pathMatch = window.location.pathname.match(/^\/events\/([^/]+)\/?$/);
       const isLive = window.location.pathname === '/live';
-      const slug = pathMatch ? decodeURIComponent(pathMatch[1]) : eventList.events[0].slug;
+      const activeEvent = eventList.events.find((event) => eventIsActive(event));
+      const slug = pathMatch
+        ? decodeURIComponent(pathMatch[1])
+        : (activeEvent?.slug ?? eventList.events[0].slug);
       if (!pathMatch && !isLive) {
         const url = new URL(window.location.href);
         url.pathname = `/events/${encodeURIComponent(slug)}`;
@@ -89,7 +96,7 @@ export default function App() {
       const trackResponseData = await trackResponse.json() as TrackResponse;
       return {
         events: eventList.events,
-        liveMode: isLive,
+        liveMode: isLive || eventIsActive(metadata.event),
         fixture: toFixture(metadata, trackResponseData),
       };
     }
@@ -101,10 +108,11 @@ export default function App() {
         }
         const startEpochMs = Date.parse(data.fixture.event.startTime);
         const durationMs = Date.parse(data.fixture.event.endTime) - startEpochMs;
+        const currentElapsedMs = Math.max(0, Math.min(durationMs, Date.now() - startEpochMs));
         const requestedTime = Date.parse(new URLSearchParams(window.location.search).get('at') ?? '');
         const initialElapsedMs = Number.isFinite(requestedTime)
           ? Math.max(0, Math.min(durationMs, requestedTime - startEpochMs))
-          : (data.liveMode ? durationMs : (data.fixture.positions[0]?.[0] ?? 0));
+          : (data.liveMode ? currentElapsedMs : (data.fixture.positions[0]?.[0] ?? 0));
         setEvents(data.events);
         setLiveMode(data.liveMode);
         setFixture(data.fixture);
@@ -121,13 +129,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!liveMode) {
+    if (!liveMode || !fixture) {
       return;
     }
+    const rollingLive = fixture.event.slug === 'live';
     let cancelled = false;
     const refresh = async () => {
-      const metadataResponse = await fetch('/api/v1/live');
-      const trackResponse = await fetch('/api/v1/live/tracks');
+      const metadataUrl = rollingLive
+        ? '/api/v1/live'
+        : `/api/v1/events/${encodeURIComponent(fixture.event.slug)}`;
+      const parameters = new URLSearchParams({
+        from: fixture.event.startTime,
+        to: fixture.event.endTime,
+      });
+      const trackUrl = rollingLive
+        ? '/api/v1/live/tracks'
+        : `/api/v1/events/${encodeURIComponent(fixture.event.slug)}/tracks?${parameters}`;
+      const metadataResponse = await fetch(metadataUrl);
+      const trackResponse = await fetch(trackUrl);
       if (!metadataResponse.ok || !trackResponse.ok || cancelled) {
         return;
       }
@@ -136,7 +155,9 @@ export default function App() {
       const nextFixture = toFixture(metadata, tracks);
       if (!cancelled) {
         setFixture(nextFixture);
-        setElapsedMs(Date.parse(nextFixture.event.endTime) - Date.parse(nextFixture.event.startTime));
+        const startMs = Date.parse(nextFixture.event.startTime);
+        const durationMs = Date.parse(nextFixture.event.endTime) - startMs;
+        setElapsedMs(rollingLive ? durationMs : Math.max(0, Math.min(durationMs, Date.now() - startMs)));
       }
     };
     const timer = window.setInterval(() => void refresh(), LIVE_REFRESH_INTERVAL_MS);
@@ -144,7 +165,17 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [liveMode]);
+  }, [fixture?.event.slug, liveMode]);
+
+  useEffect(() => {
+    if (!fixture || fixture.event.slug === 'live') {
+      return;
+    }
+    const updateActiveState = () => setLiveMode(eventIsActive(fixture.event));
+    updateActiveState();
+    const timer = window.setInterval(updateActiveState, LIVE_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [fixture?.event.endTime, fixture?.event.slug, fixture?.event.startTime]);
 
   const durationMs = fixture
     ? Date.parse(fixture.event.endTime) - Date.parse(fixture.event.startTime)
@@ -174,6 +205,7 @@ export default function App() {
     [elapsedMs, fixture],
   );
   const atEnd = durationMs > 0 && durationMs - elapsedMs < 1_000;
+  const rollingLive = fixture?.event.slug === 'live';
 
   useEffect(() => {
     if (!fixture || liveMode) {
@@ -222,13 +254,13 @@ export default function App() {
       <header className="top-bar panel">
         <div>
           <p className="eyebrow">Open Sail Tracker · {liveMode ? 'Live' : 'Aufzeichnung'}</p>
-          <h1>{liveMode ? 'Live' : fixture.event.name}</h1>
+          <h1>{fixture.event.name}</h1>
         </div>
         {events.length > 0 && (
           <label>
             Veranstaltung
             <select
-              value={liveMode ? '__live__' : fixture.event.slug}
+              value={rollingLive ? '__live__' : fixture.event.slug}
               onChange={(event) => {
                 const url = new URL(window.location.href);
                 url.pathname = event.target.value === '__live__'

@@ -9,6 +9,8 @@ This directory contains the first map and replay proof of concept for Open Sail 
 - event metadata and bounded track data loaded through relative `/api/v1` resources;
 - event selection through stable slugs in `/events/{slug}` URLs;
 - public geofenced `Live` view, refreshed every five seconds;
+- automatic five-second data refresh, without a page reload, while a dated event is inside its start/end interval;
+- automatic selection of the currently active event when the application is opened without an explicit event URL;
 - local dummy API with the anonymized training fixture;
 - colored recent tail, optional gray history, and dashed gray future track;
 - timeline scrubbing and accelerated playback;

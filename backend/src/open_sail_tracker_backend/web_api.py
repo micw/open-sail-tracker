@@ -156,7 +156,43 @@ TEST_EVENT = Event(
         ),
     ),
 )
-EVENT_REPOSITORY = StaticEventRepository((TEST_EVENT,))
+
+PILSENSEE_BOUNDS = [
+    [11.172458803865464, 48.0127936438613],
+    [11.203311981805054, 48.0376395211887],
+]
+
+
+def pilsensee_event(day: str, weekday: str) -> Event:
+    return Event(
+        slug=f"pilsensee-2026-09-{day}",
+        name=f"Regatta am Pilsensee – {weekday}",
+        start_time=f"2026-09-{day}T08:00:00+02:00",
+        end_time=f"2026-09-{day}T18:00:00+02:00",
+        initial_bounds=PILSENSEE_BOUNDS,
+        publication_bounds=PILSENSEE_BOUNDS,
+        entries=(
+            EventEntry(
+                id=f"pilsensee-{day}-tracker-01",
+                boat=Boat(id="pilsensee-testboot", sail_number="01", name="Testboot"),
+                color="#ef476f",
+                tracker_assignments=(
+                    TrackerAssignment(
+                        tracker_number="01",
+                        telemetry_device_id="4c939764",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+PILSENSEE_EVENTS = (
+    pilsensee_event("25", "Freitag"),
+    pilsensee_event("26", "Samstag"),
+    pilsensee_event("27", "Sonntag"),
+)
+EVENT_REPOSITORY = StaticEventRepository((*PILSENSEE_EVENTS, TEST_EVENT))
 
 
 def parse_datetime(value: str) -> int:
@@ -470,7 +506,7 @@ def serve(host: str, port: int, victoria_metrics_url: str) -> None:
         EVENT_REPOSITORY,
         telemetry,
         GuestTrackVisibilityPolicy(),
-        TEST_EVENT,
+        PILSENSEE_EVENTS[0],
     )
     handler = type("ConfiguredApiHandler", (ApiHandler,), {"service": service})
     server = ThreadingHTTPServer((host, port), handler)
