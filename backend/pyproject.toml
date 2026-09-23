@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-sail-tracker-backend"
-version = "0.4.2"
+version = "0.5.0"
 description = "CoAP telemetry ingest and HTTP event API for Open Sail Tracker"
 requires-python = ">=3.9"
 dependencies = []
