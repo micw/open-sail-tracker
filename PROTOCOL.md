@@ -1,7 +1,7 @@
 # Open Sail Tracker protocol
 
 Status: authoritative proof-of-concept specification  
-Last updated: 2026-09-18
+Last updated: 2026-09-22
 
 This document defines the current unencrypted CoAP transport and the intended security upgrade. All multi-byte integers use network byte order (big endian). Encoders and decoders must process individual fields and must not transmit native C/C++ structs.
 
@@ -103,7 +103,7 @@ Cadence: ten seconds, with an additional packet immediately after boot
 
 Cellular state values are `0` off, `1` searching, `2` registered, `3` data service available, and `4` error.
 
-The current firmware populates position, uptime, battery voltage, minimum sampled battery voltage, speed, course, satellites used, HDOP, RSSI, cellular state, pending-record count, and reset reason. Battery voltage comes primarily from the averaged ESP32 GPIO8 ADC measurement; SIM7670G `AT+CBC` is used only as a fallback. RSRP, RSRQ, and SINR are not implemented yet and use their defined sentinels.
+The current firmware populates position, uptime, battery voltage, minimum sampled battery voltage, speed, course, satellites used, HDOP, RSSI, cellular state, pending-record count, and reset reason. Both battery fields contain only averaged ESP32 GPIO8 ADC measurements or `UINT16_MAX`; SIM7670G `AT+CBC` is no longer substituted when the ADC value is invalid. The modem-supply value is currently logged locally and is not transmitted in protocol version 1. RSRP, RSRQ, and SINR are not implemented yet and use their defined sentinels.
 
 ## Backend validation
 

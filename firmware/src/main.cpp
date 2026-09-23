@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include <driver/gpio.h>
+#include <esp_sleep.h>
 #include <esp_system.h>
 #include <math.h>
 
@@ -10,6 +12,7 @@ constexpr int MODEM_DTR_PIN = 7;
 constexpr int MODEM_PWRKEY_PIN = 46;
 constexpr int BOARD_POWER_SAVE_MODE_PIN = 42;
 constexpr int BATTERY_ADC_PIN = 8;
+constexpr int MODEM_GNSS_ANTENNA_POWER_GPIO = 1;
 
 constexpr uint32_t MODEM_BAUD = 115200;
 constexpr char APN[] = "iotde.telefonica.com";
@@ -20,6 +23,9 @@ constexpr uint32_t POSITION_INTERVAL_MS = 1000;
 constexpr uint32_t STATUS_INTERVAL_MS = 10000;
 constexpr uint32_t FIX_FRESH_MS = 3000;
 constexpr unsigned BATTERY_SAMPLE_COUNT = 32;
+constexpr uint16_t LOW_BATTERY_SHUTDOWN_MV = 3400;
+constexpr uint16_t LOW_BATTERY_RECOVERY_MV = 3450;
+constexpr uint8_t LOW_BATTERY_CONFIRMATION_COUNT = 30;
 constexpr size_t POSITION_PACKET_SIZE = 26;
 constexpr size_t STATUS_PACKET_SIZE = 58;
 constexpr size_t MAX_COAP_DATAGRAM_SIZE = 96;
@@ -56,11 +62,13 @@ uint32_t nextStatusMs = 0;
 uint16_t coapMessageId = 0;
 uint16_t batteryMv = UNKNOWN_U16;
 uint16_t batteryMinMv = UNKNOWN_U16;
+uint16_t modemSupplyMv = UNKNOWN_U16;
 uint16_t speedCms = UNKNOWN_U16;
 uint16_t courseCdeg = UNKNOWN_U16;
 uint16_t hdopX100 = UNKNOWN_U16;
 uint8_t satellites = UNKNOWN_U8;
 int8_t rssiDbm = UNKNOWN_I8;
+uint8_t lowBatteryConfirmationCount = 0;
 
 String readModem(uint32_t timeoutMs, bool stopAtPrompt = false)
 {
@@ -275,12 +283,63 @@ bool ensureUdpSocket()
 
 bool enableGnss()
 {
-    const bool gpioDirection = atCommand("AT+CGDRT=1,1", 2000).indexOf("OK") >= 0;
-    const bool antennaPower = atCommand("AT+CGSETV=1,1", 2000).indexOf("OK") >= 0;
+    const bool gpioDirection = atCommand(String("AT+CGDRT=") + MODEM_GNSS_ANTENNA_POWER_GPIO + ",1", 2000).indexOf("OK") >= 0;
+    const bool antennaPower = atCommand(String("AT+CGSETV=") + MODEM_GNSS_ANTENNA_POWER_GPIO + ",1", 2000).indexOf("OK") >= 0;
     const bool gnssPower = atCommand("AT+CGNSSPWR=1", 10000).indexOf("OK") >= 0;
-    gnssOn = gpioDirection && antennaPower && gnssPower;
+    const bool gnssMode = atCommand("AT+CGNSSMODE=15", 2000).indexOf("OK") >= 0;
+    gnssOn = gpioDirection && antennaPower && gnssPower && gnssMode;
     gnssError = !gnssOn;
     return gnssOn;
+}
+
+void disableGnss()
+{
+    atCommand("AT+CGNSSTST=0", 2000);
+    atCommand("AT+CGNSSPWR=0", 5000);
+    atCommand(String("AT+CGSETV=") + MODEM_GNSS_ANTENNA_POWER_GPIO + ",0", 2000);
+    gnssOn = false;
+}
+
+void holdOutputLow(int pin)
+{
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, LOW);
+    gpio_hold_en(static_cast<gpio_num_t>(pin));
+}
+
+void enterMinimumPowerDeepSleep(const char *reason)
+{
+    Serial.printf("Entering minimum-power shutdown: %s\n", reason);
+
+    disableGnss();
+
+    if (udpSocketReady) {
+        atCommand("AT+CIPCLOSE=0", 3000);
+        udpSocketReady = false;
+    }
+    atCommand("AT+NETCLOSE", 5000);
+    atCommand("AT+CPOF", 10000);
+    delay(10000);
+
+    const bool modemOff = !modemResponds();
+    Serial.printf("Modem power-off verification: %s\n", modemOff ? "not responding" : "still responding");
+
+    SerialAT.end();
+    pinMode(MODEM_TX_PIN, INPUT);
+    pinMode(MODEM_RX_PIN, INPUT);
+    holdOutputLow(MODEM_DTR_PIN);
+    holdOutputLow(MODEM_PWRKEY_PIN);
+    holdOutputLow(BOARD_POWER_SAVE_MODE_PIN);
+    pinMode(BATTERY_ADC_PIN, INPUT);
+    gpio_deep_sleep_hold_en();
+
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+    Serial.println("Entering indefinite ESP32 deep sleep; reset or power-cycle the board to restart.");
+    Serial.flush();
+    delay(100);
+    esp_deep_sleep_start();
 }
 
 bool parseDecimalCoordinate(const String &value, const String &hemisphere, bool latitude, int32_t &result)
@@ -405,16 +464,36 @@ uint16_t readModemBatteryMv()
 void updateBatteryVoltage(bool queryModem)
 {
     const uint16_t adcMv = readBatteryAdcMv();
-    const uint16_t modemMv = queryModem ? readModemBatteryMv() : UNKNOWN_U16;
-    batteryMv = adcMv != UNKNOWN_U16 ? adcMv : modemMv;
+    if (queryModem) {
+        modemSupplyMv = readModemBatteryMv();
+    }
+    batteryMv = adcMv;
     if (batteryMv != UNKNOWN_U16 &&
         (batteryMinMv == UNKNOWN_U16 || batteryMv < batteryMinMv)) {
         batteryMinMv = batteryMv;
     }
-    Serial.printf("Battery ADC=%s modem=%s selected=%s mV\n",
+    Serial.printf("Battery ADC=%s modem_supply=%s selected_adc=%s mV\n",
                   adcMv == UNKNOWN_U16 ? "unknown" : String(adcMv).c_str(),
-                  modemMv == UNKNOWN_U16 ? "unknown" : String(modemMv).c_str(),
+                  modemSupplyMv == UNKNOWN_U16 ? "unknown" : String(modemSupplyMv).c_str(),
                   batteryMv == UNKNOWN_U16 ? "unknown" : String(batteryMv).c_str());
+}
+
+bool lowBatteryShutdownConfirmed()
+{
+    if (batteryMv == UNKNOWN_U16) {
+        return false;
+    }
+    if (batteryMv <= LOW_BATTERY_SHUTDOWN_MV) {
+        if (lowBatteryConfirmationCount < LOW_BATTERY_CONFIRMATION_COUNT) {
+            ++lowBatteryConfirmationCount;
+        }
+    } else if (batteryMv >= LOW_BATTERY_RECOVERY_MV) {
+        lowBatteryConfirmationCount = 0;
+    }
+    Serial.printf("Low-battery confirmations: %u/%u\n",
+                  lowBatteryConfirmationCount,
+                  LOW_BATTERY_CONFIRMATION_COUNT);
+    return lowBatteryConfirmationCount >= LOW_BATTERY_CONFIRMATION_COUNT;
 }
 
 void putU16(uint8_t *buffer, size_t offset, uint16_t value)
@@ -564,6 +643,11 @@ bool sendCoapPost(const char *resource, bool confirmable, const uint8_t *payload
 
 void setup()
 {
+    gpio_deep_sleep_hold_dis();
+    gpio_hold_dis(static_cast<gpio_num_t>(MODEM_DTR_PIN));
+    gpio_hold_dis(static_cast<gpio_num_t>(MODEM_PWRKEY_PIN));
+    gpio_hold_dis(static_cast<gpio_num_t>(BOARD_POWER_SAVE_MODE_PIN));
+
     Serial.begin(115200);
     delay(1500);
     Serial.println("\nOpen Sail Tracker CoAP PoC starting.");
@@ -582,6 +666,8 @@ void setup()
     }
 
     atCommand("ATE0", 1000);
+    atCommand("AT+SIMCOMATI", 3000);
+    disableGnss();
     if (!waitForNetwork()) {
         Serial.println("WARNING: Not registered with LTE yet.");
     }
@@ -594,6 +680,9 @@ void setup()
     coapMessageId = static_cast<uint16_t>(esp_random());
     nextPositionMs = millis();
     nextStatusMs = millis();
+    Serial.printf("Regatta tracking active; low-battery shutdown at %u mV after %u confirmations.\n",
+                  LOW_BATTERY_SHUTDOWN_MV,
+                  LOW_BATTERY_CONFIRMATION_COUNT);
 }
 
 void loop()
@@ -608,6 +697,7 @@ void loop()
 
     updatePosition();
     updateBatteryVoltage(statusDue);
+    const bool shutdownAfterCycle = lowBatteryShutdownConfirmed();
     if (statusDue) {
         updateSignalQuality();
     }
@@ -637,5 +727,9 @@ void loop()
         if (sent) {
             batteryMinMv = batteryMv;
         }
+    }
+
+    if (shutdownAfterCycle) {
+        enterMinimumPowerDeepSleep("battery ADC at or below 3.4 V for 30 measurement cycles");
     }
 }
